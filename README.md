@@ -2,6 +2,8 @@
 
 **Pilot your college budget.**
 
+**Play it live:** https://onyediftw.github.io/Fundergrad/
+
 Fundergrad is a 14-week money game for college students. Each week you split a paycheck across food, getting around, school, social, and savings, then face a real-world event (textbooks, a delayed paycheck, a fake-check job offer) and make a call. Every lesson links to a government or Nobel Prize source.
 
 Built solo for **HackPSU 2026** in the **FNB Challenge: Trust, Decisions & Financial Confidence** track.
