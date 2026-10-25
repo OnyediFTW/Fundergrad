@@ -1119,7 +1119,7 @@
   // ---------- Tutorial: spotlight, arrow, and a short text box ----------
   // Each step points at one part of the screen. Steps without a target are centered cards.
   var TOUR_STEPS = [
-    { title: 'Welcome to Fundergrad',
+    { title: 'Welcome to Fundergrad!',
       text: 'This is a fourteen-week college semester where your money choices have real consequences. Make your mistakes here, with fake money, so the real ones cost less. You finish with a Cash GPA.' },
     { target: function () { return $('weekTrack'); }, side: 'bottom', title: 'Your semester',
       text: 'This bar tracks the fourteen weeks. The blue dots mark Fall Break and Thanksgiving, when costs spike.' },
