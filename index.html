@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fundergrad: Pilot your college budget</title>
+  <meta name="description" content="A semester-long money game for college students. Make real-world money choices week by week, with sources.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- The game shell: left rail, top progress bar, left controls, radar, bottom tabs -->
+  <div class="app" id="app">
+
+    <nav class="rail" aria-label="Game menu">
+      <button class="rail-btn" id="btnMenu" type="button">
+        <span class="rail-icon" aria-hidden="true">&#9776;</span>
+        <span>Menu</span>
+      </button>
+      <button class="rail-btn" id="btnSources" type="button">
+        <span class="rail-icon" aria-hidden="true">&#9675;</span>
+        <span>Sources</span>
+      </button>
+    </nav>
+
+    <header class="topbar">
+      <ol class="weeks" id="weekTrack" aria-label="Semester progress"></ol>
+      <p class="weeklabel" id="weekLabel"></p>
+    </header>
+
+    <!-- Left panel: this week's money, sliders, lock-in -->
+    <aside class="controls" id="controls" aria-label="This week's budget">
+      <div class="week-head">
+        <h2 id="weekTitle">Week 1</h2>
+        <p id="weekDate" class="muted"></p>
+      </div>
+
+      <div class="sliders" id="sliders"></div>
+
+      <dl class="totals">
+        <div class="total-row"><dt>Available</dt><dd id="available">$0</dd></div>
+        <div class="total-row"><dt>Weekly budget</dt><dd id="weeklyBudget">$0</dd></div>
+      </dl>
+
+      <button class="primary" id="btnLock" type="button">Lock in this week</button>
+      <p class="hint-line" id="lockHint" aria-live="polite"></p>
+    </aside>
+
+    <!-- Top right: your money and the health radar -->
+    <main class="stage" id="stage">
+      <div class="money-strip">
+        <div class="money" id="cashWrap">
+          <span class="money-label">Cash</span>
+          <span class="money-value" id="cashValue">$0</span>
+        </div>
+        <div class="money">
+          <span class="money-label">Savings</span>
+          <span class="money-value small" id="savingsValue">$0</span>
+        </div>
+        <div class="money">
+          <span class="money-label">Card balance</span>
+          <span class="money-value small" id="cardValue">$0</span>
+        </div>
+        <div class="money">
+          <span class="money-label">Stress</span>
+          <span class="money-value small" id="stressValue">0</span>
+        </div>
+      </div>
+
+      <div class="radar-wrap">
+        <div class="radar-box">
+          <svg class="radar" id="radar" viewBox="0 0 400 400" role="img" aria-label="Your financial health on four measures">
+            <circle class="r-ring" cx="200" cy="200" r="150"></circle>
+            <circle class="r-ring faint" cx="200" cy="200" r="100"></circle>
+            <circle class="r-ring faint" cx="200" cy="200" r="50"></circle>
+            <line class="r-axis" x1="200" y1="30" x2="200" y2="370"></line>
+            <line class="r-axis" x1="30" y1="200" x2="370" y2="200"></line>
+            <polygon class="r-target" id="radarTarget" points=""></polygon>
+            <polygon class="r-you" id="radarYou" points=""></polygon>
+            <g id="radarDots"></g>
+          </svg>
+          <span class="axis a-tl">Buffer</span>
+          <span class="axis a-tr">Savings</span>
+          <span class="axis a-bl">Control</span>
+          <span class="axis a-br">Calm</span>
+        </div>
+        <ul class="legend" aria-label="Chart key">
+          <li><span class="key key-you"></span>You</li>
+          <li><span class="key key-target"></span>Healthy target</li>
+        </ul>
+      </div>
+    </main>
+
+    <!-- Bottom: click-through information -->
+    <section class="insights" aria-label="Insights">
+      <div class="tabs" role="tablist" id="tabs">
+        <button role="tab" type="button" data-tab="scorecard" aria-selected="false">Scorecard</button>
+        <button role="tab" type="button" data-tab="account" aria-selected="false">Account</button>
+        <button role="tab" type="button" data-tab="thisWeek" aria-selected="true">This week</button>
+        <button role="tab" type="button" data-tab="sources" aria-selected="false">Hints and sources</button>
+      </div>
+      <div class="tabpanel" id="tabPanel" role="tabpanel" tabindex="0"></div>
+    </section>
+  </div>
+
+  <!-- Start screen. Put your logo at assets/logo.png (see README). -->
+  <div class="start" id="start">
+    <div class="start-inner">
+      <img class="logo" id="logo" src="assets/logo.png" alt="Fundergrad" width="320"
+           onerror="this.style.display='none';document.getElementById('logoText').hidden=false;">
+      <h1 class="logo-text" id="logoText" hidden>Fundergrad</h1>
+      <p class="tagline">Pilot your college budget.</p>
+      <button class="primary big" id="btnStart" type="button">Start your semester</button>
+      <p class="fine">Fourteen weeks. Real prices. Sources for every lesson.</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Testing buttons. They only appear when the address ends in #dev. -->
+  <div class="devbar" id="devBar" hidden>
+    <span>Testing</span>
+    <button type="button" data-dev="prev">Week back</button>
+    <button type="button" data-dev="next">Week forward</button>
+    <button type="button" data-dev="gain">Money in</button>
+    <button type="button" data-dev="loss">Money out</button>
+  </div>
+
+  <!-- Plain scripts, loaded in order. No server needed: just open this file. -->
+  <script src="js/sources.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
