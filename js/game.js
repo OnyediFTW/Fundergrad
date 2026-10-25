@@ -1,20 +1,18 @@
-/* Fundergrad: game skeleton (build step 3)
+/* Fundergrad: game logic (build step 3)
  *
- * What works now:
- *   - start screen, 14-week progress bar, tabs
- *   - weekly allocation sliders with an "Available" counter
- *   - cash chart: your balance week by week, with a live preview that moves as you drag a slider
- *   - "Lock in this week": pay arrives (green), spending leaves (red), the chart gains a point
- *   - Scorecard tab: four health meters (Buffer, Savings, Control, Calm)
- *   - This week / Hints and sources tabs read straight from events.js
+ * How a week works:
+ *   1. The event card (a "modal") opens. You pick a choice.
+ *   2. The choice's effects apply right away: cash, card balance, stress, recurring
+ *      charges, payments scheduled for later weeks. You see what happened and why it matters.
+ *   3. You split the week's budget with the sliders. The chart previews where you will end up.
+ *   4. "Lock in this week": pay arrives (green), bills and spending leave (red), week advances.
  *
- * What is NOT here yet (next build steps):
- *   - the event card and choice effects (events.js already has the data)
- *   - the hint engine, overdraft fee, card interest, scheduled payments
- *   - Cash GPA, results screen, Rewind (the chart will show the "smart path" there), tutorial arrows
+ * Still to come (next build steps): overdraft fee, card interest, the hint engine,
+ * Cash GPA, results screen, Rewind, tutorial arrows.
  *
- * Testing tools (only when the URL ends in #dev): a small button bar in the
- * corner, plus keys  [ ]  to change week  and  = -  to test the green / red flash.
+ * Testing tools (only when the URL ends in #dev): a small button bar in the corner,
+ * plus keys  [ ]  to change week  and  = -  to test the green / red flash.
+ * Stepping weeks with the testing tools skips that week's event.
  */
 (function () {
   'use strict';
@@ -24,10 +22,9 @@
   var START_CASH = 800;      // summer savings plus refund
   var WEEKLY_NEEDS = 135;    // baseline weekly spending, used for the cushion line and Buffer meter
   var CUSHION = WEEKLY_NEEDS * 4;   // "4 weeks of needs" goal shown on the chart
-  var OVERDRAFT_FEE = 35;    // sourced: CFPB (see docs/sources.md)
+  var OVERDRAFT_FEE = 35;    // sourced: CFPB (see docs/sources.md); applied in the next build step
 
   // Each slider is one place your week's money can go.
-  // "floor" is a rough minimum for the week; below it, stress goes up (later build step).
   var CATEGORIES = [
     { key: 'food',      label: 'Food off the meal plan', floor: 35, max: 120 },
     { key: 'transport', label: 'Getting around',         floor: 15, max: 80 },
@@ -56,7 +53,20 @@
     history: [{ week: 0, cash: START_CASH }],   // cash at the end of each week, for the chart
     activeTab: 'thisWeek',
     done: false,
-    busy: false,                     // true for a moment while the pay/spend animation plays
+    busy: false,                     // true while the pay/spend animation plays
+
+    // Event system
+    flags: {},                       // decisions the game remembers, e.g. hasCard
+    recurring: {},                   // weekly charges, e.g. subscriptions
+    scheduled: [],                   // money that lands in a later week: { week, cash, label }
+    outcomes: {},                    // what you chose each week: { choiceId, label, lines }
+    eventPending: false,             // true until you pick a choice and continue
+    phase: 'choose',                 // modal phase: 'choose' or 'outcome'
+
+    // Delayed paycheck (week 5)
+    delayedThisWeek: false,
+    coverAmount: 0,                  // budget for a week when pay is delayed
+    owedPay: 0,                      // delayed pay that arrives next week
   };
 
   // ---------- Small helpers ----------
@@ -66,11 +76,16 @@
     var rounded = Math.round(n);
     return (rounded < 0 ? '\u2212' : '') + '$' + Math.abs(rounded).toLocaleString('en-US');
   }
+  function signed(n) { return (n > 0 ? '+' : '\u2212') + '$' + Math.abs(Math.round(n)).toLocaleString('en-US'); }
   function currentEvent() { return EVENTS[state.week - 1]; }
   function allocTotal() {
     return CATEGORIES.reduce(function (sum, c) { return sum + state.alloc[c.key]; }, 0);
   }
-  function available() { return WEEKLY_INCOME - allocTotal(); }
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
 
   function toast(message) {
     var el = $('toast');
@@ -78,6 +93,21 @@
     el.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(function () { el.hidden = true; }, 3500);
+  }
+
+  // ---------- Week money rules ----------
+  function recurringTotal() {
+    return Object.keys(state.recurring).reduce(function (sum, id) { return sum + state.recurring[id].perWeek; }, 0);
+  }
+  function scheduledNet(week) {
+    return state.scheduled.reduce(function (sum, s) { return s.week === week ? sum + s.cash : sum; }, 0);
+  }
+  function payThisWeek() { return (state.delayedThisWeek ? 0 : WEEKLY_INCOME) + state.owedPay; }
+  function weekBudget() { return state.delayedThisWeek ? state.coverAmount : WEEKLY_INCOME; }
+  function available() { return weekBudget() - allocTotal(); }
+
+  function addLedger(week, label, amount) {
+    state.ledger.unshift({ week: week, label: label, amount: amount });
   }
 
   // ---------- Money flash: green for money in, red for money out ----------
@@ -92,7 +122,7 @@
 
     var delta = document.createElement('span');
     delta.className = 'delta ' + kind;
-    delta.textContent = (amount > 0 ? '+' : '\u2212') + '$' + Math.abs(Math.round(amount));
+    delta.textContent = signed(amount);
     delta.setAttribute('aria-hidden', 'true');
     $('cashWrap').appendChild(delta);
     delta.addEventListener('animationend', function () { delta.remove(); });
@@ -113,7 +143,11 @@
   function previewPoint() {
     var last = state.history[state.history.length - 1];
     if (state.done || state.busy || last.week >= EVENTS.length) return null;
-    return { week: last.week + 1, cash: state.cash + WEEKLY_INCOME - allocTotal() };
+    var week = last.week + 1;
+    return {
+      week: week,
+      cash: state.cash + payThisWeek() + scheduledNet(week) - recurringTotal() - allocTotal(),
+    };
   }
 
   function niceStep(range) {
@@ -139,7 +173,7 @@
 
     // Vertical range: always show $0 (the overdraft line) and the cushion goal.
     var values = state.history.map(function (p) { return p.cash; });
-    values.push(0, CUSHION);
+    values.push(0, CUSHION, state.cash);
     if (pv) values.push(pv.cash);
     var yMin = Math.min(Math.min.apply(null, values), 0) - 70;
     var yMax = Math.max.apply(null, values) + 90;
@@ -289,13 +323,15 @@
     var el = $('available');
     el.textContent = money(left);
     el.classList.toggle('over', left < 0);
-    $('weeklyBudget').textContent = money(WEEKLY_INCOME);
+    $('weeklyBudget').textContent = money(weekBudget());
 
     var lock = $('btnLock');
-    lock.disabled = state.done || left < 0;
-    $('lockHint').textContent = left < 0
-      ? 'You have allocated ' + money(-left) + ' more than this week\u2019s budget.'
-      : '';
+    lock.disabled = state.done || state.busy || state.eventPending || left < 0;
+    var hint = '';
+    if (state.eventPending && !state.done) hint = 'Make this week\u2019s decision first.';
+    else if (left < 0) hint = 'You have allocated ' + money(-left) + ' more than this week\u2019s budget.';
+    else if (state.delayedThisWeek) hint = 'Your paycheck is late, so this week\u2019s budget is only ' + money(weekBudget()) + '.';
+    $('lockHint').textContent = hint;
 
     renderChart();   // the preview point follows the sliders
   }
@@ -309,6 +345,38 @@
   }
 
   // ---------- Bottom tabs ----------
+  function stat(name, value) {
+    return '<div class="stat"><dt>' + name + '</dt><dd>' + value + '</dd></div>';
+  }
+
+  function sourceLinks(ev) {
+    return '<ul class="source-list">' + ev.sources.map(function (key) {
+      var s = SOURCES[key];
+      return '<li><a href="' + s.url + '" target="_blank" rel="noopener">' + escapeHtml(s.title) + '</a>' +
+        '<div class="org">' + escapeHtml(s.org) + '</div></li>';
+    }).join('') + '</ul>';
+  }
+
+  // Plain-text credit for the in-game event card. No links, so nothing can open mid-game.
+  // The clickable links live in the Hints and sources tab and on the final Sources screen.
+  function sourceCredit(ev) {
+    var orgs = [];
+    ev.sources.forEach(function (key) {
+      var org = SOURCES[key].org;
+      if (orgs.indexOf(org) === -1) orgs.push(org);
+    });
+    return '<p class="source-tag">Source: ' + escapeHtml(orgs.join(', ')) + '</p>';
+  }
+
+  function outcomeList(lines) {
+    return '<ul class="outcome-list">' + lines.map(function (line) {
+      var amount = line.amount !== undefined
+        ? '<span class="amt ' + line.kind + '">' + signed(line.amount) + (line.note ? ' ' + escapeHtml(line.note) : '') + '</span>'
+        : '';
+      return '<li><span>' + escapeHtml(line.text) + '</span>' + amount + '</li>';
+    }).join('') + '</ul>';
+  }
+
   function renderTabs() {
     var buttons = $('tabs').querySelectorAll('button');
     Array.prototype.forEach.call(buttons, function (b) {
@@ -341,81 +409,277 @@
     } else if (state.activeTab === 'account') {
       html += '<h3 class="panel-title">Account</h3>';
       if (state.ledger.length === 0) {
-        html += '<p class="panel-lede">Nothing yet. Lock in your first week and every dollar in and out shows up here.</p>';
+        html += '<p class="panel-lede">Nothing yet. Every dollar in and out shows up here.</p>';
       } else {
-        html += '<ul class="ledger">' + state.ledger.slice(0, 40).map(function (row) {
+        html += '<ul class="ledger">' + state.ledger.slice(0, 60).map(function (row) {
           var kind = row.amount > 0 ? 'gain' : 'loss';
           return '<li><span>Week ' + row.week + ': ' + escapeHtml(row.label) + '</span>' +
-            '<span class="' + kind + '">' + (row.amount > 0 ? '+' : '\u2212') + '$' + Math.abs(Math.round(row.amount)) + '</span></li>';
+            '<span class="' + kind + '">' + signed(row.amount) + '</span></li>';
         }).join('') + '</ul>';
       }
     } else if (state.activeTab === 'thisWeek' && !state.done) {
-      html += '<h3 class="panel-title">' + escapeHtml(ev.title) + '</h3>' +
-        '<p class="panel-lede">' + escapeHtml(ev.blurb) + '</p>' +
-        '<ul class="choice-list">' + ev.choices.map(function (c) {
-          return '<li><strong>' + escapeHtml(c.label) + '</strong><span>' + escapeHtml(c.detail) + '</span></li>';
-        }).join('') + '</ul>' +
-        '<p class="panel-lede" style="margin-top:10px">Picking a choice comes in the next build step.</p>';
+      var outcome = state.outcomes[ev.week];
+      html += '<h3 class="panel-title">' + escapeHtml(ev.title) + '</h3>';
+      if (state.eventPending && state.phase === 'choose') {
+        html += '<p class="panel-lede">' + escapeHtml(ev.blurb) + '</p>' +
+          '<button class="primary" type="button" data-action="open">Open this week\u2019s event</button>';
+      } else if (outcome) {
+        html += '<p class="panel-lede">You chose: <strong>' + escapeHtml(outcome.label) + '</strong></p>' +
+          outcomeList(outcome.lines) +
+          '<p class="panel-lede" style="margin-top:10px">' + escapeHtml(ev.takeaway) + '</p>';
+      } else {
+        html += '<p class="panel-lede">' + escapeHtml(ev.blurb) + '</p>';
+      }
     } else if (state.activeTab === 'sources' && !state.done) {
       html += '<h3 class="panel-title">' + escapeHtml(ev.lesson) + '</h3>' +
-        '<p class="panel-lede">' + escapeHtml(ev.takeaway) + '</p>' +
-        '<ul class="source-list">' + ev.sources.map(function (key) {
-          var s = SOURCES[key];
-          return '<li><a href="' + s.url + '" target="_blank" rel="noopener">' + escapeHtml(s.title) + '</a>' +
-            '<div class="org">' + escapeHtml(s.org) + '</div></li>';
-        }).join('') + '</ul>';
+        '<p class="panel-lede">' + escapeHtml(ev.takeaway) + '</p>' + sourceLinks(ev);
     } else {
       html += '<p class="panel-lede">The semester is finished. The results screen is the next build step.</p>';
     }
     panel.innerHTML = html;
   }
 
-  function stat(name, value) {
-    return '<div class="stat"><dt>' + name + '</dt><dd>' + value + '</dd></div>';
-  }
+  // Plain-English lines for decisions the game remembers but that do not move money right away.
+  var FLAG_LINES = {
+    hasCard: 'You now have a credit card: $500 limit, about 22% APR',
+    payInFull: 'Your plan: pay the card off in full every month',
+    waitedOnJacket: 'You gave the urge 48 hours to fade',
+    borrowedBooks: 'You are borrowing books, so expect to wait for copies',
+    borrowedLaptop: 'You are borrowing a laptop with limited hours',
+  };
 
-  function escapeHtml(text) {
-    return String(text).replace(/[&<>"']/g, function (ch) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+  // ---------- Applying a choice's effects ----------
+  // Returns a list of lines for the "What happened" screen.
+  function applyEffects(effects, week) {
+    var lines = [];
+    var cashNet = 0;
+
+    effects.forEach(function (fx) {
+      if (fx.type === 'cash') {
+        state.cash += fx.amount;
+        cashNet += fx.amount;
+        addLedger(week, fx.label || 'Event', fx.amount);
+        lines.push({ kind: fx.amount > 0 ? 'gain' : 'loss', text: fx.label || 'Event', amount: fx.amount });
+
+      } else if (fx.type === 'card') {
+        state.cardDebt += fx.amount;
+        lines.push({ kind: 'loss', text: (fx.label || 'Card charge') + ': added to your card balance', amount: fx.amount });
+
+      } else if (fx.type === 'stress') {
+        state.stress = clamp(state.stress + fx.amount, 0, 8);
+        lines.push({ kind: 'neutral', text: fx.amount > 0 ? 'Your stress goes up' : 'Your stress goes down' });
+
+      } else if (fx.type === 'flag') {
+        state.flags[fx.key] = fx.value;
+        if (fx.value === true && FLAG_LINES[fx.key]) lines.push({ kind: 'neutral', text: FLAG_LINES[fx.key] });
+
+      } else if (fx.type === 'recurring') {
+        if (fx.perWeek > 0) {
+          state.recurring[fx.id] = { perWeek: fx.perWeek, label: fx.label };
+          lines.push({ kind: 'loss', text: fx.label + ': a weekly charge from now on', amount: -fx.perWeek, note: 'a week' });
+        } else {
+          delete state.recurring[fx.id];
+          lines.push({ kind: 'gain', text: 'Subscriptions cancelled: no more weekly charges' });
+        }
+
+      } else if (fx.type === 'scheduled') {
+        state.scheduled.push({ week: fx.week, cash: fx.cash, label: fx.label });
+        lines.push({ kind: fx.cash > 0 ? 'gain' : 'loss', text: 'Week ' + fx.week + ': ' + fx.label, amount: fx.cash });
+
+      } else if (fx.type === 'coverWeek') {
+        state.coverAmount = fx.amount;
+        if (fx.from === 'card') {
+          state.cardDebt += fx.amount;
+          state.cash += fx.amount;
+          cashNet += fx.amount;
+          addLedger(week, 'The card covers this week (card balance goes up)', fx.amount);
+          lines.push({ kind: 'loss', text: 'The card covers this week: added to your card balance', amount: fx.amount });
+        } else if (fx.from === 'family') {
+          state.cash += fx.amount;
+          cashNet += fx.amount;
+          addLedger(week, 'Gift from family', fx.amount);
+          lines.push({ kind: 'gain', text: 'A gift from family covers this week', amount: fx.amount });
+        } else {
+          lines.push({ kind: 'neutral', text: 'You cover this week from your balance: ' + money(fx.amount) + ' to spend' });
+        }
+      }
     });
+
+    if (cashNet) flashMoney(cashNet);
+    return lines;
   }
 
-  // ---------- Turn logic (basic ledger only; event choices come next) ----------
+  // ---------- Event modal ----------
+  function setAppInert(on) {
+    var app = $('app');
+    app.inert = !!on;
+    app.setAttribute('aria-hidden', on ? 'true' : 'false');
+  }
+
+  function focusFirst(container) {
+    if (container && typeof container.querySelector === 'function') {
+      var first = container.querySelector('button:not([disabled])');
+      if (first) first.focus();
+    }
+  }
+
+  // The small label on the right of each choice button.
+  function badgeFor(choice) {
+    var cash = 0, card = 0, cover = null, rec = null;
+    choice.effects.forEach(function (fx) {
+      if (fx.type === 'cash') cash += fx.amount;
+      else if (fx.type === 'card') card += fx.amount;
+      else if (fx.type === 'coverWeek') cover = fx;
+      else if (fx.type === 'recurring') rec = fx;
+    });
+    if (cash) return { text: signed(cash), kind: cash > 0 ? 'gain' : 'loss' };
+    if (card) return { text: money(card) + ' on card', kind: 'loss' };
+    if (cover) return { text: money(cover.amount) + ' to spend', kind: 'neutral' };
+    if (rec) return { text: money(rec.perWeek) + ' a week', kind: rec.perWeek ? 'loss' : 'gain' };
+    return null;
+  }
+
+  function renderModal() {
+    var ev = currentEvent();
+    var html = '<p class="modal-week">Week ' + ev.week + ' of ' + EVENTS.length + '  \u00B7  week of ' + escapeHtml(ev.date) + '</p>' +
+      '<h2 class="modal-title" id="eventTitle">' + escapeHtml(ev.title) + '</h2>';
+
+    if (state.phase === 'choose') {
+      html += '<p class="modal-blurb">' + escapeHtml(ev.blurb) + '</p><ul class="modal-choices">' +
+        ev.choices.map(function (c) {
+          var locked = c.requires && !state.flags[c.requires];
+          var badge = badgeFor(c);
+          return '<li><button type="button" class="choice-btn" data-choice="' + escapeHtml(c.id) + '"' + (locked ? ' disabled' : '') + '>' +
+            '<span class="choice-text"><strong>' + escapeHtml(c.label) + '</strong>' +
+            '<span>' + escapeHtml(locked ? 'You need the credit card from Week 2 for this one.' : c.detail) + '</span></span>' +
+            (badge && !locked ? '<span class="badge ' + badge.kind + '">' + escapeHtml(badge.text) + '</span>' : '') +
+            '</button></li>';
+        }).join('') + '</ul>';
+    } else {
+      var outcome = state.outcomes[ev.week];
+      html += '<p class="modal-blurb">You chose: <strong>' + escapeHtml(outcome.label) + '</strong></p>' +
+        '<h3 class="modal-sub">What happened</h3>' + outcomeList(outcome.lines) +
+        '<div class="why"><h3 class="modal-sub">Why it matters</h3><p>' + escapeHtml(ev.takeaway) + '</p>' + sourceCredit(ev) + '</div>' +
+        '<div class="modal-actions"><button type="button" class="primary" data-action="continue">Continue to your budget</button></div>';
+    }
+
+    $('modalBody').innerHTML = html;
+    focusFirst($('modalBody'));
+  }
+
+  function openEvent() {
+    var ev = currentEvent();
+    state.eventPending = true;
+    state.phase = 'choose';
+    (ev.onEnter || []).forEach(function (fx) {
+      if (fx.type === 'delayPaycheck') {
+        state.delayedThisWeek = true;
+        state.coverAmount = 0;
+      }
+    });
+    renderModal();
+    $('eventModal').hidden = false;
+    setAppInert(true);
+    renderControls();
+    renderTabs();
+  }
+
+  function chooseOption(id) {
+    var ev = currentEvent();
+    var choice = null;
+    ev.choices.forEach(function (c) { if (c.id === id) choice = c; });
+    if (!choice || (choice.requires && !state.flags[choice.requires])) return;
+    if (state.phase !== 'choose') return;
+
+    var lines = applyEffects(choice.effects, ev.week);
+    if (lines.length === 0) lines.push({ kind: 'neutral', text: 'No money changes hands.' });
+    state.outcomes[ev.week] = { choiceId: id, label: choice.label, lines: lines };
+    state.phase = 'outcome';
+    renderMoney();
+    renderModal();
+    renderControls();
+    renderTabs();
+  }
+
+  function continueFromEvent() {
+    state.eventPending = false;
+    $('eventModal').hidden = true;
+    setAppInert(false);
+    renderControls();
+    renderTabs();
+    if (typeof $('btnLock').focus === 'function') $('btnLock').focus();
+  }
+
+  // ---------- Turn logic ----------
   function lockIn() {
-    if (state.done || state.busy || available() < 0) return;
+    if (state.done || state.busy || state.eventPending || available() < 0) return;
     state.busy = true;
 
     var weekPlayed = state.week;   // the week advances below, so remember which week these entries belong to
     var spend = allocTotal() - state.alloc.save;
     var save = state.alloc.save;
+    var pay = payThisWeek();
+    var hadOwed = state.owedPay > 0;
+    var wasDelayed = state.delayedThisWeek;
 
-    state.cash += WEEKLY_INCOME;
-    state.ledger.unshift({ week: weekPlayed, label: 'Paycheck', amount: WEEKLY_INCOME });
-    flashMoney(WEEKLY_INCOME);
+    // Pay arrives first.
+    if (pay > 0) {
+      state.cash += pay;
+      addLedger(weekPlayed, hadOwed ? 'Paycheck (including last week\u2019s late pay)' : 'Paycheck', pay);
+      flashMoney(pay);
+    }
+    state.owedPay = wasDelayed ? WEEKLY_INCOME : 0;   // a late paycheck arrives next week
+    state.delayedThisWeek = false;
+    state.coverAmount = 0;
     renderMoney();
 
-    // Show the money going out a beat after the money coming in.
+    // Bills and spending leave a beat later.
     setTimeout(function () {
+      var net = 0;
+
+      state.scheduled.forEach(function (s) {
+        if (s.week !== weekPlayed) return;
+        state.cash += s.cash;
+        net += s.cash;
+        addLedger(weekPlayed, s.label, s.cash);
+      });
+      state.scheduled = state.scheduled.filter(function (s) { return s.week !== weekPlayed; });
+
+      Object.keys(state.recurring).forEach(function (id) {
+        var r = state.recurring[id];
+        state.cash -= r.perWeek;
+        net -= r.perWeek;
+        addLedger(weekPlayed, r.label, -r.perWeek);
+      });
+
       if (spend > 0) {
         state.cash -= spend;
-        state.ledger.unshift({ week: weekPlayed, label: 'Weekly spending', amount: -spend });
-        flashMoney(-spend);
+        net -= spend;
+        addLedger(weekPlayed, 'Weekly spending', -spend);
       }
+      if (net) flashMoney(net);
+
       if (save > 0) {
         state.cash -= save;
         state.savings += save;
-        state.ledger.unshift({ week: weekPlayed, label: 'Moved to savings', amount: -save });
+        addLedger(weekPlayed, 'Moved to savings', -save);
       }
+
       state.history.push({ week: weekPlayed, cash: state.cash });
       state.busy = false;
       renderMoney();
       renderChart();
       renderTabs();
+
+      if (state.done) {
+        toast('Semester complete. The results screen is the next build step.');
+      } else {
+        openEvent();
+      }
     }, 650);
 
     if (state.week >= EVENTS.length) {
       state.done = true;
-      toast('Semester complete. The results screen is the next build step.');
     } else {
       state.week += 1;
     }
@@ -427,28 +691,67 @@
   // ---------- Start ----------
   function startGame() {
     $('start').classList.add('hide');
-    setTimeout(function () { $('start').style.display = 'none'; }, 520);
-    renderChart();   // measure the chart now that the game is visible
-    // Tutorial arrows come in a later build step; they will open here.
-    $('btnLock').focus();
+    setTimeout(function () {
+      $('start').style.display = 'none';
+      // Tutorial arrows come in a later build step; they will open here, before the first event.
+      openEvent();
+    }, 520);
+    setAppInert(false);
   }
 
   // ---------- Wire up ----------
+  function closestWith(target, selector) {
+    return target && typeof target.closest === 'function' ? target.closest(selector) : target;
+  }
+
   function init() {
     buildSliders();
     renderProgress();
     renderControls();
     renderMoney();
     renderTabs();
+    setAppInert(true);   // the start screen is on top until you press Start
 
     $('btnStart').addEventListener('click', startGame);
     $('btnLock').addEventListener('click', lockIn);
+
+    // Clicks inside the event modal: choosing an option, or continuing.
+    $('eventModal').addEventListener('click', function (e) {
+      var node = closestWith(e.target, '[data-choice],[data-action]');
+      if (!node || !node.getAttribute) return;
+      var choice = node.getAttribute('data-choice');
+      var action = node.getAttribute('data-action');
+      if (choice) chooseOption(choice);
+      else if (action === 'continue') continueFromEvent();
+    });
+
+    // Keep keyboard focus inside the modal while it is open.
+    document.addEventListener('keydown', function (e) {
+      var modal = $('eventModal');
+      if (e.key !== 'Tab' || modal.hidden || typeof modal.querySelectorAll !== 'function') return;
+      var items = modal.querySelectorAll('button:not([disabled]), a[href]');
+      if (!items.length) return;
+      var first = items[0];
+      var last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
 
     $('tabs').addEventListener('click', function (e) {
       var tab = e.target.getAttribute && e.target.getAttribute('data-tab');
       if (!tab) return;
       state.activeTab = tab;
       renderTabs();
+    });
+
+    // The "Open this week's event" button inside the This week tab.
+    $('tabPanel').addEventListener('click', function (e) {
+      var node = closestWith(e.target, '[data-action]');
+      if (node && node.getAttribute && node.getAttribute('data-action') === 'open' && state.eventPending) {
+        $('eventModal').hidden = false;
+        setAppInert(true);
+        renderModal();
+      }
     });
 
     $('btnSources').addEventListener('click', function () {
@@ -472,6 +775,10 @@
     function stepWeek(delta) {
       state.week = clamp(state.week + delta, 1, EVENTS.length);
       state.done = false;
+      state.eventPending = false;
+      state.delayedThisWeek = false;
+      $('eventModal').hidden = true;
+      setAppInert(false);
       renderProgress(); renderControls(); renderTabs();
     }
     function devAction(name) {
