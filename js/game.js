@@ -968,7 +968,7 @@
   // If-then moves (implementation intentions): a plan made in advance beats willpower in the moment.
   var MOVES = {
     card:   'If I carry a card balance, then I pay more than the interest every week until it is gone.',
-    buffer: 'If I get paid, then I move $20 to savings before I spend anything, until I hold about $540.',
+    buffer: 'If my cash drops under about $540 (four weeks of basics), then I pause wants like social and delivery until it is back up.',
     fees:   'If my balance drops under $50, then I stop spending for the week. A $35 overdraft fee is never worth a $12 takeout.',
     saving: 'If it is payday, then I move a small amount to savings first, even $10.',
     calm:   'If money gets tight, then I cut wants like social and delivery before I cut food or school supplies.',
@@ -1029,6 +1029,7 @@
       var diff = Math.round((now.gpa - before.gpa) * 10) / 10;
       html += '<p class="compare">' + escapeHtml(before.label) + ': ' + before.gpa.toFixed(1) + '. This run: ' + now.gpa.toFixed(1) +
         (diff !== 0 ? '  (' + (diff > 0 ? '+' : '\u2212') + Math.abs(diff).toFixed(1) + ')' : '  (no change)') + '</p>';
+      html += '<p class="compare-note">Rewind keeps the same events and prices. The buffer is a head start, and your choices still decide where you end up.</p>';
     }
 
     html += '<h3 class="modal-sub">How it was graded</h3><ul class="grades">' + res.parts.map(function (p) {

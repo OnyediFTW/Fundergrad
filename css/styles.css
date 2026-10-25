@@ -524,9 +524,7 @@ a { color: var(--sky); }
   position: fixed;
   inset: 0;
   z-index: 16;
-  display: grid;
-  justify-items: center;
-  align-items: start;
+  display: block;
   padding: 28px 20px;
   overflow-y: auto;
   background: radial-gradient(ellipse at 50% 0%, #23324d 0%, rgba(17, 25, 39, .98) 70%);
@@ -537,6 +535,7 @@ a { color: var(--sky); }
 
 .sheet {
   width: min(860px, 100%);
+  margin: 0 auto;
   padding: 28px 30px 24px;
   background: var(--slate);
   border: 1px solid var(--line);
@@ -567,9 +566,24 @@ a { color: var(--sky); }
 .shape li { padding: 6px 12px; border-left: 3px solid var(--sky); background: rgba(38, 54, 80, .5); border-radius: 6px; }
 .shape li.trap { border-left-color: var(--gold); }
 
-.moves { display: grid; gap: 10px; padding-left: 22px; max-width: 70ch; }
-.moves li { padding-left: 4px; }
-.moves li::marker { color: var(--gold); font-weight: 700; }
+.moves { display: grid; gap: 12px; max-width: 70ch; list-style: none; padding: 0; counter-reset: move; }
+.moves li { position: relative; padding-left: 34px; counter-increment: move; }
+.moves li::before {
+  content: counter(move);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--gold-ink);
+  font-weight: 700;
+  font-size: 13px;
+}
+.compare-note { margin-top: 2px; color: var(--muted); font-size: 13px; }
 
 .results-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
 .secondary {
