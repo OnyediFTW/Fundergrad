@@ -7,8 +7,14 @@
  *   3. You split the week's budget with the sliders. The chart previews where you will end up.
  *   4. "Lock in this week": pay arrives (green), bills and spending leave (red), week advances.
  *
- * Still to come (next build steps): overdraft fee, card interest, the hint engine,
- * Cash GPA, results screen, Rewind, tutorial arrows.
+ * Rules (step 4):
+ *   - Overdraft: if your cash is below $0 when the week ends, the bank charges $35 and stress rises.
+ *   - Card: carry a balance and it grows by about 22% a year (charged weekly). A "Pay down card"
+ *     slider appears whenever you owe money.
+ *   - Stress: skipping food, transport, or school supplies raises it; a calm week lowers it.
+ *   - Coach: a rules-based helper that reads your numbers (never a chatbot) and gives up to three hints.
+ *
+ * Still to come: Cash GPA, results screen, Rewind, tutorial arrows.
  *
  * Testing tools (only when the URL ends in #dev): a small button bar in the corner,
  * plus keys  [ ]  to change week  and  = -  to test the green / red flash.
@@ -22,7 +28,8 @@
   var START_CASH = 800;      // summer savings plus refund
   var WEEKLY_NEEDS = 135;    // baseline weekly spending, used for the cushion line and Buffer meter
   var CUSHION = WEEKLY_NEEDS * 4;   // "4 weeks of needs" goal shown on the chart
-  var OVERDRAFT_FEE = 35;    // sourced: CFPB (see docs/sources.md); applied in the next build step
+  var OVERDRAFT_FEE = 35;    // sourced: CFPB (see docs/sources.md)
+  var CARD_APR = 22;         // sourced: Federal Reserve G.19, about 22% (see docs/sources.md)
 
   // Each slider is one place your week's money can go.
   var CATEGORIES = [
@@ -30,6 +37,7 @@
     { key: 'transport', label: 'Getting around',         floor: 15, max: 80 },
     { key: 'school',    label: 'School supplies',        floor: 10, max: 80 },
     { key: 'social',    label: 'Social',                 floor: 0,  max: 120 },
+    { key: 'card',      label: 'Pay down card',          floor: 0,  max: 150, hidden: true },
     { key: 'save',      label: 'Save',                   floor: 0,  max: 150 },
   ];
 
@@ -48,12 +56,17 @@
     savings: 0,
     cardDebt: 0,
     stress: 2,                       // 0 (calm) to 8 (overloaded)
-    alloc: { food: 40, transport: 20, school: 15, social: 45, save: 50 },
+    alloc: { food: 40, transport: 20, school: 15, social: 45, card: 0, save: 50 },
     ledger: [],                      // newest first: { week, label, amount }
     history: [{ week: 0, cash: START_CASH }],   // cash at the end of each week, for the chart
     activeTab: 'thisWeek',
     done: false,
     busy: false,                     // true while the pay/spend animation plays
+
+    // Rules tracking
+    feesPaid: 0,                     // total overdraft fees
+    interestPaid: 0,                 // total card interest added to your balance
+    saveZeroWeeks: 0,                // weeks in a row with nothing saved
 
     // Event system
     flags: {},                       // decisions the game remembers, e.g. hasCard
@@ -77,6 +90,13 @@
     return (rounded < 0 ? '\u2212' : '') + '$' + Math.abs(rounded).toLocaleString('en-US');
   }
   function signed(n) { return (n > 0 ? '+' : '\u2212') + '$' + Math.abs(Math.round(n)).toLocaleString('en-US'); }
+  function cents(n) { return '$' + Math.abs(n).toFixed(2); }
+  // Small non-whole amounts (like card interest) keep their cents so they do not round to $0.
+  function signedExact(n) {
+    if (Math.abs(n) < 10 && n % 1 !== 0) return (n > 0 ? '+' : '\u2212') + cents(n);
+    return signed(n);
+  }
+  function round2(n) { return Math.round(n * 100) / 100; }
   function currentEvent() { return EVENTS[state.week - 1]; }
   function allocTotal() {
     return CATEGORIES.reduce(function (sum, c) { return sum + state.alloc[c.key]; }, 0);
@@ -133,7 +153,7 @@
     return [
       clamp((state.cash / CUSHION) * 100, 0, 100),        // Buffer: how much of a 4-week cushion you hold
       clamp((state.savings / 400) * 100, 0, 100),         // Savings
-      clamp(100 - state.cardDebt / 5, 0, 100),            // Control: not carrying card debt
+      clamp(100 - state.cardDebt / 5 - state.feesPaid - state.interestPaid * 2, 0, 100),   // Control: no card debt, fees, or interest
       clamp(100 - state.stress * 12, 0, 100),             // Calm
     ];
   }
@@ -144,10 +164,9 @@
     var last = state.history[state.history.length - 1];
     if (state.done || state.busy || last.week >= EVENTS.length) return null;
     var week = last.week + 1;
-    return {
-      week: week,
-      cash: state.cash + payThisWeek() + scheduledNet(week) - recurringTotal() - allocTotal(),
-    };
+    var raw = state.cash + payThisWeek() + scheduledNet(week) - recurringTotal() - allocTotal();
+    var overdraft = raw < 0;
+    return { week: week, raw: raw, overdraft: overdraft, cash: overdraft ? raw - OVERDRAFT_FEE : raw };
   }
 
   function niceStep(range) {
@@ -227,7 +246,7 @@
     // Live preview: where this week ends if you lock in now
     if (pv) {
       var last = state.history[state.history.length - 1];
-      var bad = pv.cash < 0;
+      var bad = pv.overdraft;
       var px = X(pv.week);
       var py = Y(pv.cash);
       out.push('<line class="c-preview" x1="' + X(last.week).toFixed(1) + '" y1="' + Y(last.cash).toFixed(1) + '" x2="' + px.toFixed(1) + '" y2="' + py.toFixed(1) + '"></line>');
@@ -243,7 +262,7 @@
         labelX = anchor === 'end' ? px - 12 : px;
         labelY = py - 14;
       }
-      out.push('<text class="c-preview-label' + (bad ? ' bad' : '') + '" x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="' + anchor + '">Ends at ' + money(pv.cash) + (bad ? ' (overdraft)' : '') + '</text>');
+      out.push('<text class="c-preview-label' + (bad ? ' bad' : '') + '" x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="' + anchor + '">Ends at ' + money(pv.cash) + (bad ? ' (with overdraft fee)' : '') + '</text>');
     }
 
     svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
@@ -281,6 +300,8 @@
     CATEGORIES.forEach(function (c) {
       var row = document.createElement('div');
       row.className = 'slider-row';
+      row.id = 'row-' + c.key;
+      if (c.hidden) { row.hidden = true; row.style.display = 'none'; }
 
       var top = document.createElement('div');
       top.className = 'slider-top';
@@ -308,7 +329,8 @@
 
       var note = document.createElement('div');
       note.className = 'slider-note';
-      note.textContent = c.floor > 0 ? 'Most weeks need at least ' + money(c.floor) : ' ';
+      note.textContent = c.floor > 0 ? 'Most weeks need at least ' + money(c.floor)
+        : c.key === 'card' ? 'Interest keeps adding until the balance is paid off' : ' ';
 
       row.appendChild(top);
       row.appendChild(input);
@@ -319,6 +341,15 @@
 
   function renderControls() {
     var ev = currentEvent();
+
+    // The "Pay down card" slider only shows while you owe money.
+    var owes = state.cardDebt > 0.005;
+    state.alloc.card = owes ? Math.min(state.alloc.card, Math.ceil(state.cardDebt / 5) * 5) : 0;
+    var cardRow = $('row-card');
+    if (cardRow) { cardRow.hidden = !owes; cardRow.style.display = owes ? '' : 'none'; }
+    var cardSlider = $('slider-card');
+    if (cardSlider) cardSlider.max = String(Math.max(5, Math.min(150, Math.ceil(state.cardDebt / 5) * 5)));
+
     $('weekTitle').textContent = state.done ? 'Done' : 'Week ' + state.week;
     $('weekDate').textContent = state.done ? '' : 'Week of ' + ev.date + (ev.tag === 'break' ? '  \u00B7  ' + ev.title : '');
 
@@ -342,6 +373,8 @@
     $('lockHint').textContent = hint;
 
     renderChart();   // the preview point follows the sliders
+    renderCoach();
+    if (state.activeTab === 'sources') renderTabs();   // keep the hints list live as you drag
   }
 
   // ---------- Money stats ----------
@@ -350,6 +383,102 @@
     $('savingsValue').textContent = money(state.savings);
     $('cardValue').textContent = money(state.cardDebt);
     $('stressValue').textContent = state.stress + ' / 8';
+  }
+
+  // ---------- Coach: rules-based hints ----------
+  // Every hint comes from a rule that reads your numbers. Nothing here calls an AI.
+  var LOOKAHEAD = {
+    4:  'Fall Break is two weeks away. Staying on campus adds about $40 in food and going home runs about $90, so set a little aside now.',
+    10: 'Thanksgiving is two weeks away. Travel can run $30 to $140, so plan for it now.',
+    11: 'A winter coat, gifts, and club dues all land in Week 13. Setting aside a little each week keeps that from hitting at once.',
+  };
+
+  function computeHints() {
+    var hints = [];
+    if (state.done || state.eventPending) return hints;
+    var pv = previewPoint();
+    function add(kind, text) { hints.push({ kind: kind, text: text }); }
+
+    // 1. Overdraft or a thin cushion
+    if (pv && pv.overdraft) {
+      var gap = Math.ceil(-pv.raw / 5) * 5;
+      add('danger', 'This plan would push your account below $0 and cost a ' + money(OVERDRAFT_FEE) + ' overdraft fee. Trim about ' + money(gap) + ' from spending or savings this week.');
+    } else if (pv && pv.raw < WEEKLY_NEEDS) {
+      add('warn', 'You would end the week with less than one week of expenses (' + money(WEEKLY_NEEDS) + ') in cash. One surprise could trigger a ' + money(OVERDRAFT_FEE) + ' fee.');
+    }
+
+    // 2. Card balance
+    if (state.cardDebt > 0.5 && state.alloc.card === 0) {
+      var weekly = round2(state.cardDebt * CARD_APR / 100 / 52);
+      if (state.flags.payInFull) {
+        add('warn', 'You planned to pay the card off in full. Putting ' + money(state.cardDebt) + ' toward it this week would clear it.');
+      } else {
+        add('warn', 'You owe ' + money(state.cardDebt) + ' on your card at about ' + CARD_APR + '% APR. That adds about ' + cents(weekly) + ' a week, and it keeps growing until the balance is paid off.');
+      }
+    }
+
+    // 3. Essentials below the usual minimum
+    var low = [];
+    CATEGORIES.forEach(function (c) {
+      if (c.floor > 0 && state.alloc[c.key] < c.floor) low.push(c.label.toLowerCase() + ' (usually ' + money(c.floor) + ')');
+    });
+    if (low.length) add('warn', 'You are below the usual minimum for ' + low.join(' and ') + '. Cutting essentials tends to raise stress.');
+
+    // 4. Saving habit
+    if (state.saveZeroWeeks >= 2 && state.alloc.save === 0) {
+      add('tip', 'You have not saved in ' + state.saveZeroWeeks + ' weeks. Even $10 a week builds a cushion for when a surprise hits.');
+    }
+
+    // 5. Social spending is the biggest line
+    if (state.alloc.social >= 70) {
+      add('tip', 'Social is ' + money(state.alloc.social) + ' this week. Fun counts, but check it against your cushion.');
+    }
+
+    // 6. Known costs coming up
+    if (LOOKAHEAD[state.week]) add('tip', LOOKAHEAD[state.week]);
+
+    // 7. Subscriptions
+    var subs = state.recurring.subs;
+    if (subs && subs.perWeek >= 8) {
+      var left = EVENTS.length - state.week + 1;
+      add('tip', 'Your subscriptions cost ' + money(subs.perWeek) + ' a week. Over the rest of the semester that is about ' + money(subs.perWeek * left) + '.');
+    }
+
+    if (hints.length === 0) {
+      if (state.cash >= WEEKLY_NEEDS && state.cardDebt < 0.5) {
+        add('good', 'You are on track: more than a week of expenses in cash and nothing building up on the card.');
+      } else {
+        add('tip', 'Drag a slider and watch the chart. The dashed line shows where this week would end.');
+      }
+    }
+    return hints.slice(0, 4);
+  }
+
+  function ensureCoach() {
+    if ($('coach')) return;
+    var box = document.createElement('div');
+    box.id = 'coach';
+    box.className = 'coach';
+    box.hidden = true;
+    var label = document.createElement('span');
+    label.className = 'coach-label';
+    label.textContent = 'Coach';
+    var text = document.createElement('p');
+    text.id = 'coachText';
+    box.appendChild(label);
+    box.appendChild(text);
+    $('controls').appendChild(box);
+  }
+
+  function renderCoach() {
+    var box = $('coach');
+    if (!box) return;
+    var hints = computeHints();
+    if (!hints.length) { box.hidden = true; box.style.display = 'none'; return; }
+    box.hidden = false;
+    box.style.display = '';
+    box.className = 'coach ' + hints[0].kind;
+    $('coachText').textContent = hints[0].text;
   }
 
   // ---------- Bottom tabs ----------
@@ -404,6 +533,8 @@
         stat('Savings', money(state.savings)) +
         stat('Card balance', money(state.cardDebt)) +
         stat('Stress', state.stress + ' / 8') +
+        stat('Overdraft fees paid', money(state.feesPaid)) +
+        stat('Card interest paid', cents(state.interestPaid)) +
         stat('Weeks played', String(state.history.length - 1) + ' of ' + EVENTS.length) +
         stat('Cash GPA', 'coming soon') +
         '</dl>' +
@@ -422,7 +553,7 @@
         html += '<ul class="ledger">' + state.ledger.slice(0, 60).map(function (row) {
           var kind = row.amount > 0 ? 'gain' : 'loss';
           return '<li><span>Week ' + row.week + ': ' + escapeHtml(row.label) + '</span>' +
-            '<span class="' + kind + '">' + signed(row.amount) + '</span></li>';
+            '<span class="' + kind + '">' + signedExact(row.amount) + '</span></li>';
         }).join('') + '</ul>';
       }
     } else if (state.activeTab === 'thisWeek' && !state.done) {
@@ -439,7 +570,14 @@
         html += '<p class="panel-lede">' + escapeHtml(ev.blurb) + '</p>';
       }
     } else if (state.activeTab === 'sources' && !state.done) {
-      html += '<h3 class="panel-title">' + escapeHtml(ev.lesson) + '</h3>' +
+      var tabHints = computeHints();
+      html += '<h3 class="panel-title">Coach</h3>' +
+        (tabHints.length
+          ? '<ul class="hint-list">' + tabHints.map(function (h) {
+              return '<li class="hint ' + h.kind + '">' + escapeHtml(h.text) + '</li>';
+            }).join('') + '</ul>'
+          : '<p class="panel-lede">The coach has hints once you are budgeting for the week.</p>') +
+        '<h3 class="panel-title" style="margin-top:16px">' + escapeHtml(ev.lesson) + '</h3>' +
         '<p class="panel-lede">' + escapeHtml(ev.takeaway) + '</p>' + sourceLinks(ev);
     } else {
       html += '<p class="panel-lede">The semester is finished. The results screen is the next build step.</p>';
@@ -624,9 +762,15 @@
     state.busy = true;
 
     var weekPlayed = state.week;   // the week advances below, so remember which week these entries belong to
-    var spend = allocTotal() - state.alloc.save;
     var save = state.alloc.save;
+    var cardPay = Math.min(state.alloc.card, state.cardDebt);
+    var spend = allocTotal() - save - state.alloc.card;
     var pay = payThisWeek();
+
+    // Skipping essentials raises stress; a calm week lowers it.
+    var shortfalls = 0;
+    CATEGORIES.forEach(function (c) { if (c.floor > 0 && state.alloc[c.key] < c.floor) shortfalls += 1; });
+    shortfalls = Math.min(2, shortfalls);
     var hadOwed = state.owedPay > 0;
     var wasDelayed = state.delayedThisWeek;
 
@@ -665,6 +809,12 @@
         net -= spend;
         addLedger(weekPlayed, 'Weekly spending', -spend);
       }
+      if (cardPay > 0.005) {
+        state.cash -= cardPay;
+        state.cardDebt = round2(state.cardDebt - cardPay);
+        net -= cardPay;
+        addLedger(weekPlayed, 'Card payment', -cardPay);
+      }
       if (net) flashMoney(net);
 
       if (save > 0) {
@@ -672,6 +822,29 @@
         state.savings += save;
         addLedger(weekPlayed, 'Moved to savings', -save);
       }
+      state.saveZeroWeeks = save === 0 ? state.saveZeroWeeks + 1 : 0;
+
+      // Interest grows on whatever you still owe on the card.
+      if (state.cardDebt > 0.005) {
+        var interest = round2(state.cardDebt * CARD_APR / 100 / 52);
+        if (interest > 0) {
+          state.cardDebt = round2(state.cardDebt + interest);
+          state.interestPaid = round2(state.interestPaid + interest);
+          addLedger(weekPlayed, 'Card interest (added to your card balance)', -interest);
+        }
+      }
+
+      // Overdraft: below $0 when the week ends costs a fee.
+      if (state.cash < 0) {
+        state.cash -= OVERDRAFT_FEE;
+        state.feesPaid += OVERDRAFT_FEE;
+        state.stress = clamp(state.stress + 1, 0, 8);
+        addLedger(weekPlayed, 'Overdraft fee', -OVERDRAFT_FEE);
+        toast('Overdraft: your account went below $0 and the bank charged a ' + money(OVERDRAFT_FEE) + ' fee.');
+        setTimeout(function () { flashMoney(-OVERDRAFT_FEE); }, 450);
+      }
+
+      state.stress = shortfalls > 0 ? clamp(state.stress + shortfalls, 0, 8) : clamp(state.stress - 1, 0, 8);
 
       state.history.push({ week: weekPlayed, cash: state.cash });
       state.busy = false;
@@ -752,6 +925,7 @@
 
   function init() {
     ensureModal();
+    ensureCoach();
     checkStyles();
     buildSliders();
     renderProgress();

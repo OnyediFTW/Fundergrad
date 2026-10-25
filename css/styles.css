@@ -158,6 +158,7 @@ a { color: var(--sky); }
 .sliders { display: grid; gap: 16px; }
 
 .slider-row { display: grid; gap: 4px; }
+.slider-row[hidden] { display: none; }
 
 .slider-top {
   display: flex;
@@ -217,6 +218,28 @@ a { color: var(--sky); }
 .primary.big { padding: 16px 34px; font-size: 18px; border-radius: 10px; }
 
 .hint-line { min-height: 20px; font-size: 13px; color: var(--muted); }
+
+/* ---------- Coach ---------- */
+
+.coach {
+  padding: 10px 12px;
+  background: rgba(38, 54, 80, .6);
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+}
+.coach[hidden] { display: none; }
+.coach.danger { border-left-color: var(--loss); }
+.coach.good { border-left-color: var(--sky); }
+.coach-label { font-family: var(--serif); font-style: italic; color: var(--gold); font-size: 14px; }
+.coach.danger .coach-label { color: var(--loss); }
+.coach.good .coach-label { color: var(--sky); }
+.coach p { margin-top: 2px; font-size: 14px; }
+
+.hint-list { display: grid; gap: 8px; max-width: 74ch; }
+.hint { padding: 8px 12px; background: rgba(38, 54, 80, .5); border-left: 3px solid var(--line); border-radius: 6px; }
+.hint.warn { border-left-color: var(--gold); }
+.hint.danger { border-left-color: var(--loss); }
+.hint.good { border-left-color: var(--sky); }
 
 /* ---------- Stage: money + cash chart ---------- */
 

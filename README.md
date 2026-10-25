@@ -29,6 +29,13 @@ Make the mistakes here first. Fundergrad turns a semester into a game with real 
 3. Split the week's money across food, getting around, school, social, and savings. The cash chart previews where you will end up before you commit.
 4. **Lock in the week.** Fourteen weeks later, your semester is graded.
 
+## The rules behind the numbers
+
+- **Overdraft:** if your cash is below $0 when the week ends, the bank charges **$35** (CFPB) and stress rises.
+- **Credit card:** carry a balance and it grows at about **22% APR** (Federal Reserve), charged weekly. A "Pay down card" slider appears whenever you owe money.
+- **Stress:** skipping food, transport, or school supplies raises it; a calm week lowers it.
+- **Coach:** a rules-based helper that reads your numbers and gives up to four hints. It never calls an AI, so every hint is repeatable and traceable to a rule.
+
 ## Run it
 
 No install, no server. Open `index.html` in a browser.
@@ -59,7 +66,7 @@ docs/             plan, source list, event table, dev notes
 - [x] Layout and weekly ledger skeleton
 - [x] Cash chart with a live preview as you move the sliders
 - [x] Event cards and choice effects
-- [ ] Hint engine, overdraft fee, card interest
+- [x] Overdraft fee, card interest, and a rules-based coach
 - [ ] Cash GPA, results screen, Rewind
 - [ ] Tutorial arrows and sources screen
 - [ ] Polish and demo link
