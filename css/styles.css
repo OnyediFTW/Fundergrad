@@ -6,7 +6,7 @@
  * Color rules:
  *   green and red mean money in and money out. Nothing else uses them.
  *   gold is the brand and the main action.
- *   sky blue is "you" on the radar.
+ *   sky blue is "you" on the chart.
  */
 
 :root {
@@ -218,7 +218,7 @@ a { color: var(--sky); }
 
 .hint-line { min-height: 20px; font-size: 13px; color: var(--muted); }
 
-/* ---------- Stage: money + radar ---------- */
+/* ---------- Stage: money + cash chart ---------- */
 
 .stage {
   grid-area: stage;
@@ -273,65 +273,58 @@ a { color: var(--sky); }
   to   { opacity: 0; transform: translateY(-38px); }
 }
 
-.radar-wrap {
+.chart-caption {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chart-wrap {
   position: relative;
   flex: 1;
   min-height: 0;
-  display: grid;
-  place-items: center;
+  margin-top: 6px;
 }
 
-.radar-box {
-  position: relative;
-  height: 100%;
-  max-width: 100%;
-  aspect-ratio: 1 / 1;
-}
-
-.radar {
-  display: block;
+/* The svg fills the wrapper without affecting layout, so resizing never loops. */
+.chart {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
 }
 
-.r-ring { fill: rgba(255,255,255,.03); stroke: var(--line); stroke-width: 1.5; }
-.r-ring.faint { fill: none; stroke-dasharray: 3 5; }
-.r-axis { stroke: var(--line); stroke-width: 1.5; }
-.r-target { fill: none; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
-.r-you {
-  fill: rgba(98, 182, 245, .38);
-  stroke: var(--sky);
-  stroke-width: 2.5;
-  stroke-linejoin: round;
-  transition: all .6s ease;
-}
-.r-dot { fill: var(--sky); stroke: var(--ink); stroke-width: 2; transition: all .6s ease; }
-
-.axis {
-  position: absolute;
-  font-family: var(--serif);
-  font-size: 16px;
-  color: var(--text);
-}
-.a-tl { top: 3%;    left: 0; }
-.a-tr { top: 3%;    right: 0; }
-.a-bl { bottom: 8%; left: 0; }
-.a-br { bottom: 8%; right: 0; }
+.c-od { fill: rgba(255, 107, 107, .10); }
+.c-od-label { fill: var(--loss); font-size: 12px; }
+.c-grid { stroke: var(--line); stroke-width: 1; opacity: .55; }
+.c-zero { stroke: var(--loss); stroke-width: 1.5; opacity: .8; }
+.c-cushion { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.c-cushion-label { fill: var(--muted); font-size: 12px; }
+.c-mark { stroke: var(--sky); stroke-width: 1; stroke-dasharray: 3 5; opacity: .7; }
+.c-mark-label { fill: var(--sky); font-size: 12px; }
+.c-tick { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.c-line { fill: none; stroke: var(--sky); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.c-dot { fill: var(--sky); stroke: var(--ink); stroke-width: 2; }
+.c-preview { fill: none; stroke: var(--gold); stroke-width: 3; stroke-dasharray: 7 6; stroke-linecap: round; }
+.c-preview-dot { fill: var(--ink); stroke: var(--gold); stroke-width: 3; }
+.c-preview-dot.bad { stroke: var(--loss); }
+.c-preview-label { fill: var(--gold); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.c-preview-label.bad { fill: var(--loss); }
 
 .legend {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
-  gap: 18px;
+  justify-content: center;
+  gap: 22px;
+  padding: 6px 0 4px;
   font-size: 13px;
   color: var(--muted);
 }
 .legend li { display: flex; align-items: center; gap: 6px; }
 .key { width: 18px; height: 3px; border-radius: 2px; }
 .key-you { background: var(--sky); }
-.key-target { background: #fff; }
+.key-preview { background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 8px); }
+.key-cushion { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 8px); }
 
 /* ---------- Bottom insights ---------- */
 
@@ -374,6 +367,15 @@ a { color: var(--sky); }
 }
 .stat { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 4px 0; }
 .stat dd { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.meters { display: grid; gap: 12px; max-width: 70ch; margin-top: 14px; }
+.meter { display: grid; grid-template-columns: 90px 1fr 36px; gap: 4px 12px; align-items: center; }
+.meter-name { font-family: var(--serif); font-style: italic; font-size: 16px; }
+.meter-bar { position: relative; height: 8px; background: var(--slate-2); border-radius: 4px; }
+.meter-fill { display: block; height: 100%; background: var(--sky); border-radius: 4px; transition: width .5s ease; }
+.meter-target { position: absolute; left: 70%; top: -3px; bottom: -3px; width: 2px; background: #fff; }
+.meter-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.meter-desc { grid-column: 2 / 4; color: var(--muted); font-size: 13px; margin-top: -2px; }
 
 .choice-list { display: grid; gap: 8px; max-width: 70ch; }
 .choice-list li {

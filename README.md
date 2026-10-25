@@ -12,7 +12,7 @@ People get money advice from everywhere (chatbots, TikTok, family) and it usuall
 
 ## The idea
 
-Make the mistakes here first. Fundergrad turns a semester into a game with real prices, then shows what each choice cost and links to the source behind the lesson. The game engine is rules-based and deterministic, so results are repeatable and every number can be traced.
+Make the mistakes here first. Fundergrad turns a semester into a game with real prices, then shows what each choice cost and links to the source behind the lesson. A live cash chart shows where your balance will land before you lock in each week, so the consequence of every slider is visible first. The game engine is rules-based and deterministic, so results are repeatable and every number can be traced.
 
 ## How it maps to the FNB prompt
 
@@ -50,6 +50,7 @@ docs/             plan, source list, event table, dev notes
 
 - [x] Plan, event data, and source list
 - [x] Layout and weekly ledger skeleton
+- [x] Cash chart with a live preview as you move the sliders
 - [ ] Event cards and choice effects
 - [ ] Hint engine, overdraft fee, card interest
 - [ ] Cash GPA, results screen, Rewind

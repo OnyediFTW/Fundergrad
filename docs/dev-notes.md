@@ -11,12 +11,13 @@ The keys `[` `]` `=` `-` do the same. These tools only change what is on screen,
 
 ## Checks used while building
 - Data check: 14 events, every source key resolves, every choice has an effects list.
-- Smoke test: `game.js` runs in a fake DOM and plays all 14 weeks without errors.
+- Smoke test: `game.js` runs in a fake DOM and plays all 14 weeks without errors, including the chart preview, Scorecard meters, and the overdraft warning.
 - Not yet checked: how it looks in a real browser. Open it and look.
 
 ## Build steps
 1. Plan, event data, sources (this commit)
 2. Layout and weekly ledger skeleton
+2b. Cash chart with live preview (replaced the radar)
 3. Event cards and choice effects
 4. Hint engine, overdraft fee, card interest, scheduled payments
 5. Cash GPA, results screen, Rewind

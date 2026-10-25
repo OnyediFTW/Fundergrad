@@ -9,7 +9,7 @@
 </head>
 <body>
 
-  <!-- The game shell: left rail, top progress bar, left controls, radar, bottom tabs -->
+  <!-- The game shell: left rail, top progress bar, left controls, cash chart, bottom tabs -->
   <div class="app" id="app">
 
     <nav class="rail" aria-label="Game menu">
@@ -46,7 +46,7 @@
       <p class="hint-line" id="lockHint" aria-live="polite"></p>
     </aside>
 
-    <!-- Top right: your money and the health radar -->
+    <!-- Top right: your money and the cash chart -->
     <main class="stage" id="stage">
       <div class="money-strip">
         <div class="money" id="cashWrap">
@@ -67,28 +67,17 @@
         </div>
       </div>
 
-      <div class="radar-wrap">
-        <div class="radar-box">
-          <svg class="radar" id="radar" viewBox="0 0 400 400" role="img" aria-label="Your financial health on four measures">
-            <circle class="r-ring" cx="200" cy="200" r="150"></circle>
-            <circle class="r-ring faint" cx="200" cy="200" r="100"></circle>
-            <circle class="r-ring faint" cx="200" cy="200" r="50"></circle>
-            <line class="r-axis" x1="200" y1="30" x2="200" y2="370"></line>
-            <line class="r-axis" x1="30" y1="200" x2="370" y2="200"></line>
-            <polygon class="r-target" id="radarTarget" points=""></polygon>
-            <polygon class="r-you" id="radarYou" points=""></polygon>
-            <g id="radarDots"></g>
-          </svg>
-          <span class="axis a-tl">Buffer</span>
-          <span class="axis a-tr">Savings</span>
-          <span class="axis a-bl">Control</span>
-          <span class="axis a-br">Calm</span>
-        </div>
-        <ul class="legend" aria-label="Chart key">
-          <li><span class="key key-you"></span>You</li>
-          <li><span class="key key-target"></span>Healthy target</li>
-        </ul>
+      <p class="chart-caption">Your cash, week by week. Drag a slider to preview this week before you lock it in.</p>
+
+      <div class="chart-wrap" id="chartWrap">
+        <svg class="chart" id="chart" role="img" aria-label="Your cash balance, week by week"></svg>
       </div>
+
+      <ul class="legend" aria-label="Chart key">
+        <li><span class="key key-you"></span>Your cash</li>
+        <li><span class="key key-preview"></span>If you lock in now</li>
+        <li><span class="key key-cushion"></span>4-week cushion</li>
+      </ul>
     </main>
 
     <!-- Bottom: click-through information -->
