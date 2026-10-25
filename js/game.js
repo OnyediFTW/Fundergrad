@@ -8,13 +8,20 @@
  *   4. "Lock in this week": pay arrives (green), bills and spending leave (red), week advances.
  *
  * Rules (step 4):
- *   - Overdraft: if your cash is below $0 when the week ends, the bank charges $35 and stress rises.
+ *   - Overdraft: if your cash is below $0 when the week ends, your savings cover the gap first
+ *     (overdraft protection). Only what savings cannot cover costs you a $35 fee and more stress.
  *   - Card: carry a balance and it grows by about 22% a year (charged weekly). A "Pay down card"
  *     slider appears whenever you owe money.
  *   - Stress: skipping food, transport, or school supplies raises it; a calm week lowers it.
  *   - Coach: a rules-based helper that reads your numbers (never a chatbot) and gives up to three hints.
  *
- * Still to come: Cash GPA, results screen, Rewind, tutorial arrows.
+ * The end (step 5):
+ *   - After week 14 the results screen shows your Cash GPA, how it was graded, what shaped your
+ *     semester, and three personal "if-then" moves.
+ *   - Rewind replays the same semester with a $500 buffer so you can see what a cushion changes.
+ *   - A Sources screen (left rail, or the results screen) lists every link. Nothing opens by itself.
+ *
+ * Still to come: tutorial arrows.
  *
  * Testing tools (only when the URL ends in #dev): a small button bar in the corner,
  * plus keys  [ ]  to change week  and  = -  to test the green / red flash.
@@ -50,37 +57,53 @@
   ];
 
   // ---------- State ----------
-  var state = {
-    week: 1,
-    cash: START_CASH,
-    savings: 0,
-    cardDebt: 0,
-    stress: 2,                       // 0 (calm) to 8 (overloaded)
-    alloc: { food: 40, transport: 20, school: 15, social: 45, card: 0, save: 50 },
-    ledger: [],                      // newest first: { week, label, amount }
-    history: [{ week: 0, cash: START_CASH }],   // cash at the end of each week, for the chart
-    activeTab: 'thisWeek',
-    done: false,
-    busy: false,                     // true while the pay/spend animation plays
+  // A function, so Rewind and Play again can start a clean run.
+  function newState(buffer) {
+    var startCash = START_CASH + (buffer || 0);
+    return {
+      week: 1,
+      cash: startCash,
+      savings: 0,
+      cardDebt: 0,
+      stress: 2,                       // 0 (calm) to 8 (overloaded)
+      alloc: { food: 40, transport: 20, school: 15, social: 45, card: 0, save: 50 },
+      ledger: [],                      // newest first: { week, label, amount }
+      history: [{ week: 0, cash: startCash }],   // cash at the end of each week, for the chart
+      activeTab: 'thisWeek',
+      done: false,
+      busy: false,                     // true while the pay/spend animation plays
 
-    // Rules tracking
-    feesPaid: 0,                     // total overdraft fees
-    interestPaid: 0,                 // total card interest added to your balance
-    saveZeroWeeks: 0,                // weeks in a row with nothing saved
+      // Rules tracking
+      feesPaid: 0,                     // total overdraft fees
+      interestPaid: 0,                 // total card interest added to your balance
+      saveZeroWeeks: 0,                // weeks in a row with nothing saved
+      totalSaved: 0,                   // everything you set aside over the semester
+      stressLog: [],                   // stress at the end of each week, for the results screen
+      traps: [],                       // costly decisions, for the results screen
+      wins: [],                        // good decisions, for the results screen
 
-    // Event system
-    flags: {},                       // decisions the game remembers, e.g. hasCard
-    recurring: {},                   // weekly charges, e.g. subscriptions
-    scheduled: [],                   // money that lands in a later week: { week, cash, label }
-    outcomes: {},                    // what you chose each week: { choiceId, label, lines }
-    eventPending: false,             // true until you pick a choice and continue
-    phase: 'choose',                 // modal phase: 'choose' or 'outcome'
+      // Event system
+      flags: {},                       // decisions the game remembers, e.g. hasCard
+      recurring: {},                   // weekly charges, e.g. subscriptions
+      scheduled: [],                   // money that lands in a later week: { week, cash, label }
+      outcomes: {},                    // what you chose each week: { choiceId, label, lines }
+      eventPending: false,             // true until you pick a choice and continue
+      phase: 'choose',                 // modal phase: 'choose' or 'outcome'
 
-    // Delayed paycheck (week 5)
-    delayedThisWeek: false,
-    coverAmount: 0,                  // budget for a week when pay is delayed
-    owedPay: 0,                      // delayed pay that arrives next week
-  };
+      // Delayed paycheck (week 5)
+      delayedThisWeek: false,
+      coverAmount: 0,                  // budget for a week when pay is delayed
+      owedPay: 0,                      // delayed pay that arrives next week
+
+      // Results
+      buffer: buffer || 0,             // extra starting cash on a Rewind run
+      resultsShown: false,
+      lastMoves: [],
+    };
+  }
+
+  var state = newState(0);
+  var runLog = [];                     // one entry per finished run, for the Rewind comparison
 
   // ---------- Small helpers ----------
   function $(id) { return document.getElementById(id); }
@@ -165,8 +188,11 @@
     if (state.done || state.busy || last.week >= EVENTS.length) return null;
     var week = last.week + 1;
     var raw = state.cash + payThisWeek() + scheduledNet(week) - recurringTotal() - allocTotal();
-    var overdraft = raw < 0;
-    return { week: week, raw: raw, overdraft: overdraft, cash: overdraft ? raw - OVERDRAFT_FEE : raw };
+    // Savings (including this week's deposit) cover a shortfall before the bank charges a fee.
+    var covered = raw < 0 ? Math.min(state.savings + state.alloc.save, -raw) : 0;
+    var after = raw + covered;
+    var overdraft = after < 0;
+    return { week: week, raw: raw, covered: covered, overdraft: overdraft, cash: overdraft ? after - OVERDRAFT_FEE : after };
   }
 
   function niceStep(range) {
@@ -262,7 +288,7 @@
         labelX = anchor === 'end' ? px - 12 : px;
         labelY = py - 14;
       }
-      out.push('<text class="c-preview-label' + (bad ? ' bad' : '') + '" x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="' + anchor + '">Ends at ' + money(pv.cash) + (bad ? ' (with overdraft fee)' : '') + '</text>');
+      out.push('<text class="c-preview-label' + (bad ? ' bad' : '') + '" x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="' + anchor + '">Ends at ' + money(pv.cash) + (bad ? ' (with overdraft fee)' : pv.covered > 0 ? ' (savings cover ' + money(pv.covered) + ')' : '') + '</text>');
     }
 
     svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
@@ -401,8 +427,11 @@
 
     // 1. Overdraft or a thin cushion
     if (pv && pv.overdraft) {
-      var gap = Math.ceil(-pv.raw / 5) * 5;
-      add('danger', 'This plan would push your account below $0 and cost a ' + money(OVERDRAFT_FEE) + ' overdraft fee. Trim about ' + money(gap) + ' from spending or savings this week.');
+      var gap = Math.ceil((-pv.raw - pv.covered) / 5) * 5;
+      add('danger', 'This plan would push your account below $0 and cost a ' + money(OVERDRAFT_FEE) + ' overdraft fee' +
+        (pv.covered > 0 ? ', even after ' + money(pv.covered) + ' from savings' : '') + '. Trim about ' + money(gap) + ' from spending this week.');
+    } else if (pv && pv.covered > 0) {
+      add('warn', 'This plan dips below $0, so ' + money(pv.covered) + ' would come out of your savings. That avoids the ' + money(OVERDRAFT_FEE) + ' fee, but your savings will not be there for the next surprise.');
     } else if (pv && pv.raw < WEEKLY_NEEDS) {
       add('warn', 'You would end the week with less than one week of expenses (' + money(WEEKLY_NEEDS) + ') in cash. One surprise could trigger a ' + money(OVERDRAFT_FEE) + ' fee.');
     }
@@ -580,7 +609,8 @@
         '<h3 class="panel-title" style="margin-top:16px">' + escapeHtml(ev.lesson) + '</h3>' +
         '<p class="panel-lede">' + escapeHtml(ev.takeaway) + '</p>' + sourceLinks(ev);
     } else {
-      html += '<p class="panel-lede">The semester is finished. The results screen is the next build step.</p>';
+      html += '<p class="panel-lede">The semester is finished.</p>' +
+        '<button class="primary" type="button" data-action="results">See your results</button>';
     }
     panel.innerHTML = html;
   }
@@ -739,6 +769,8 @@
 
     var lines = applyEffects(choice.effects, ev.week);
     if (lines.length === 0) lines.push({ kind: 'neutral', text: 'No money changes hands.' });
+    if (choice.trap) state.traps.push(choice.trap);
+    if (choice.win) state.wins.push(choice.win);
     state.outcomes[ev.week] = { choiceId: id, label: choice.label, lines: lines };
     state.phase = 'outcome';
     renderMoney();
@@ -822,6 +854,7 @@
         state.savings += save;
         addLedger(weekPlayed, 'Moved to savings', -save);
       }
+      state.totalSaved += save;
       state.saveZeroWeeks = save === 0 ? state.saveZeroWeeks + 1 : 0;
 
       // Interest grows on whatever you still owe on the card.
@@ -834,7 +867,16 @@
         }
       }
 
-      // Overdraft: below $0 when the week ends costs a fee.
+      // Overdraft protection: savings cover a shortfall before the bank charges anything.
+      if (state.cash < 0 && state.savings > 0) {
+        var cover = Math.min(state.savings, -state.cash);
+        state.savings -= cover;
+        state.cash += cover;
+        addLedger(weekPlayed, 'Covered from savings (overdraft protection)', cover);
+        toast('Your account dipped below $0, so ' + money(cover) + ' moved over from savings.');
+      }
+
+      // Overdraft: still below $0 when the week ends costs a fee.
       if (state.cash < 0) {
         state.cash -= OVERDRAFT_FEE;
         state.feesPaid += OVERDRAFT_FEE;
@@ -845,6 +887,7 @@
       }
 
       state.stress = shortfalls > 0 ? clamp(state.stress + shortfalls, 0, 8) : clamp(state.stress - 1, 0, 8);
+      state.stressLog.push(state.stress);
 
       state.history.push({ week: weekPlayed, cash: state.cash });
       state.busy = false;
@@ -853,7 +896,7 @@
       renderTabs();
 
       if (state.done) {
-        toast('Semester complete. The results screen is the next build step.');
+        setTimeout(showResults, 900);   // let the last chart point land first
       } else {
         openEvent();
       }
@@ -878,6 +921,199 @@
       openEvent();
     }, 520);
     setAppInert(false);
+  }
+
+  // ---------- Cash GPA ----------
+  function gradeLetter(gpa) {
+    var table = [[3.85, 'A'], [3.5, 'A-'], [3.15, 'B+'], [2.85, 'B'], [2.5, 'B-'], [2.15, 'C+'], [1.85, 'C'], [1.5, 'C-'], [1.0, 'D']];
+    for (var i = 0; i < table.length; i++) { if (gpa >= table[i][0]) return table[i][1]; }
+    return 'F';
+  }
+
+  // Five parts, each scored 0 to 100, weighted into a 0.0 to 4.0 GPA.
+  function computeResults() {
+    var net = state.cash + state.savings - state.cardDebt;
+    var avgStress = state.stressLog.length
+      ? state.stressLog.reduce(function (a, b) { return a + b; }, 0) / state.stressLog.length
+      : state.stress;
+
+    var parts = [
+      { key: 'buffer', name: 'Cushion', weight: 30, score: clamp(net / 10, 0, 100),
+        note: 'You finished with ' + money(state.cash) + ' in cash and ' + money(state.savings) + ' saved' +
+          (state.cardDebt > 0.5 ? ', and you owe ' + money(state.cardDebt) + ' on the card.' : '.') },
+      { key: 'fees', name: 'Fees and interest', weight: 25, score: clamp(100 - state.feesPaid * 1.2 - state.interestPaid * 3, 0, 100),
+        note: (state.feesPaid || state.interestPaid)
+          ? 'You paid ' + money(state.feesPaid) + ' in overdraft fees and ' + cents(state.interestPaid) + ' in card interest.'
+          : 'No overdraft fees and no card interest. That is money you kept.' },
+      { key: 'saving', name: 'Saving habit', weight: 20, score: clamp(state.totalSaved / 4, 0, 100),
+        note: 'You set aside ' + money(state.totalSaved) + ' over the semester. A good target is about $400.' },
+      { key: 'calm', name: 'Stress', weight: 15, score: clamp(100 - avgStress * 12.5, 0, 100),
+        note: 'Your average stress was ' + avgStress.toFixed(1) + ' out of 8.' },
+      { key: 'traps', name: 'Traps avoided', weight: 10, score: clamp(100 - state.traps.length * 34, 0, 100),
+        note: state.traps.length ? state.traps.join('. ') + '.' : 'You steered clear of every trap.' },
+    ];
+
+    var total = parts.reduce(function (sum, p) { return sum + p.score * p.weight / 100; }, 0);
+    var gpa = Math.round(total * 0.04 * 10) / 10;
+    return { parts: parts, gpa: gpa, letter: gradeLetter(gpa) };
+  }
+
+  function gpaMessage(gpa) {
+    if (gpa >= 3.5) return 'You would graduate with honors in money. Your habits held up under pressure.';
+    if (gpa >= 2.85) return 'A solid semester: a couple of expensive lessons, and now you know how to avoid them.';
+    if (gpa >= 2.0) return 'A rough few weeks, which is exactly what practice is for. Your moves below fix the biggest ones.';
+    return 'This semester hit hard, and it cost you nothing real. Rewind it with a buffer and see what changes.';
+  }
+
+  // If-then moves (implementation intentions): a plan made in advance beats willpower in the moment.
+  var MOVES = {
+    card:   'If I carry a card balance, then I pay more than the interest every week until it is gone.',
+    buffer: 'If I get paid, then I move $20 to savings before I spend anything, until I hold about $540.',
+    fees:   'If my balance drops under $50, then I stop spending for the week. A $35 overdraft fee is never worth a $12 takeout.',
+    saving: 'If it is payday, then I move a small amount to savings first, even $10.',
+    calm:   'If money gets tight, then I cut wants like social and delivery before I cut food or school supplies.',
+    traps:  'If something says free trial, pay in 4, or a stranger sends me a check, then I wait 48 hours and check the source first.',
+  };
+  var FILLER_MOVES = [
+    'If a friend asks to borrow money, then I lend only what I can afford to lose.',
+    'If a big cost is coming (travel, textbooks), then I save a little each week ahead of time.',
+    'If I see a great deal, then I wait 48 hours before I buy.',
+  ];
+
+  function buildMoves(res) {
+    var picks = [];
+    if (state.cardDebt > 0.5) picks.push('card');
+    res.parts.slice().sort(function (a, b) { return a.score - b.score; }).forEach(function (p) {
+      if (p.score < 85 && picks.length < 3 && picks.indexOf(p.key) === -1) picks.push(p.key);
+    });
+    var moves = picks.slice(0, 3).map(function (k) { return MOVES[k]; });
+    FILLER_MOVES.forEach(function (f) { if (moves.length < 3) moves.push(f); });
+    return moves;
+  }
+
+  // ---------- Overlays: results and sources ----------
+  function ensureOverlay(id, bodyId, label) {
+    if ($(id) && $(bodyId)) return;
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.id = id;
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', label);
+    var sheet = document.createElement('div');
+    sheet.className = 'sheet';
+    var bodyEl = document.createElement('div');
+    bodyEl.id = bodyId;
+    sheet.appendChild(bodyEl);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+  }
+
+  function showResults() {
+    var res = computeResults();
+    if (!state.resultsShown) {
+      state.resultsShown = true;
+      runLog.push({ label: state.buffer ? 'With a ' + money(state.buffer) + ' buffer' : 'First run', gpa: res.gpa });
+    }
+    state.lastMoves = buildMoves(res);
+
+    var html = '<p class="modal-week">Semester complete' + (state.buffer ? '  \u00B7  Rewind with a ' + money(state.buffer) + ' buffer' : '') + '</p>' +
+      '<h2 class="modal-title" id="resultsTitle">Your Cash GPA</h2>' +
+      '<div class="gpa-row"><div class="gpa-big">' + res.gpa.toFixed(1) + '</div>' +
+      '<div><div class="gpa-grade">' + res.letter + '</div><p class="gpa-msg">' + escapeHtml(gpaMessage(res.gpa)) + '</p></div></div>';
+
+    if (runLog.length >= 2) {
+      var now = runLog[runLog.length - 1];
+      var before = runLog[runLog.length - 2];
+      var diff = Math.round((now.gpa - before.gpa) * 10) / 10;
+      html += '<p class="compare">' + escapeHtml(before.label) + ': ' + before.gpa.toFixed(1) + '. This run: ' + now.gpa.toFixed(1) +
+        (diff !== 0 ? '  (' + (diff > 0 ? '+' : '\u2212') + Math.abs(diff).toFixed(1) + ')' : '  (no change)') + '</p>';
+    }
+
+    html += '<h3 class="modal-sub">How it was graded</h3><ul class="grades">' + res.parts.map(function (p) {
+      var v = Math.round(p.score);
+      return '<li class="grade"><span class="g-name">' + escapeHtml(p.name) + ' <small>' + p.weight + '%</small></span>' +
+        '<span class="g-bar"><span class="g-fill" style="width:' + v + '%"></span></span>' +
+        '<span class="g-num">' + v + '</span>' +
+        '<span class="g-note">' + escapeHtml(p.note) + '</span></li>';
+    }).join('') + '</ul>';
+
+    if (state.wins.length || state.traps.length) {
+      html += '<h3 class="modal-sub">What shaped your semester</h3><ul class="shape">' +
+        state.wins.map(function (w) { return '<li class="win">' + escapeHtml(w) + '</li>'; }).join('') +
+        state.traps.map(function (t) { return '<li class="trap">' + escapeHtml(t) + '</li>'; }).join('') + '</ul>';
+    }
+
+    html += '<h3 class="modal-sub">Your first three moves</h3><ol class="moves">' +
+      state.lastMoves.map(function (m) { return '<li>' + escapeHtml(m) + '</li>'; }).join('') + '</ol>' +
+      '<div class="results-actions">' +
+      '<button type="button" class="primary" data-action="rewind">Rewind with a $500 buffer</button>' +
+      '<button type="button" class="secondary" data-action="again">Play again from scratch</button>' +
+      '<button type="button" class="secondary" data-action="copy">Copy my plan</button>' +
+      '<button type="button" class="secondary" data-action="sources">See the sources</button>' +
+      '</div>' +
+      '<p class="fine-print">Fundergrad is a teaching model with simplified, partly estimated prices. It is not personal financial advice.</p>';
+
+    $('resultsBody').innerHTML = html;
+    $('results').hidden = false;
+    setAppInert(true);
+    focusFirst($('resultsBody'));
+  }
+
+  function sourcesHtml() {
+    var html = '<p class="modal-week">Every lesson in Fundergrad is backed by a public source.</p>' +
+      '<h2 class="modal-title" id="sourcesTitle">Sources</h2>' +
+      '<p class="modal-blurb">Prices that are not listed below are game estimates, not published statistics. The overdraft fee, the card interest rate (about 22% APR, from the Federal Reserve G.19 release), and the textbook range are the sourced figures.</p>';
+    EVENTS.forEach(function (ev) {
+      html += '<h3 class="modal-sub">Week ' + ev.week + ': ' + escapeHtml(ev.lesson) + '</h3>' + sourceLinks(ev);
+    });
+    var k = SOURCES.NOBEL_KAHNEMAN;
+    html += '<h3 class="modal-sub">Behavioral science background</h3><ul class="source-list"><li><a href="' + k.url +
+      '" target="_blank" rel="noopener">' + escapeHtml(k.title) + '</a><div class="org">' + escapeHtml(k.org) + '</div></li></ul>' +
+      '<div class="modal-actions"><button type="button" class="primary" data-action="close-sources">Close</button></div>';
+    return html;
+  }
+
+  function openSources() {
+    $('sourcesBody').innerHTML = sourcesHtml();
+    $('sourcesOverlay').hidden = false;
+    setAppInert(true);
+    focusFirst($('sourcesBody'));
+  }
+
+  function closeSources() {
+    $('sourcesOverlay').hidden = true;
+    var stillOpen = !$('results').hidden || !$('eventModal').hidden;
+    setAppInert(stillOpen);
+    if (!$('results').hidden) focusFirst($('resultsBody'));
+  }
+
+  function copyPlan() {
+    var text = 'My Fundergrad plan\n' + state.lastMoves.map(function (m, i) { return (i + 1) + '. ' + m; }).join('\n');
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { toast('Plan copied.'); },
+        function () { toast('Could not copy automatically. Select the text and copy it.'); }
+      );
+    } else {
+      toast('Could not copy automatically. Select the text and copy it.');
+    }
+  }
+
+  // Start a clean semester. buffer is extra starting cash (the Rewind run).
+  function restart(buffer) {
+    $('results').hidden = true;
+    $('sourcesOverlay').hidden = true;
+    state = newState(buffer);
+    buildSliders();
+    renderProgress();
+    renderControls();
+    renderMoney();
+    renderTabs();
+    setAppInert(false);
+    if (buffer) toast('Rewound: the same semester, starting with ' + money(buffer) + ' more in cash.');
+    openEvent();
   }
 
   // ---------- Safety net for out-of-date files ----------
@@ -925,6 +1161,8 @@
 
   function init() {
     ensureModal();
+    ensureOverlay('results', 'resultsBody', 'Your results');
+    ensureOverlay('sourcesOverlay', 'sourcesBody', 'Sources');
     ensureCoach();
     checkStyles();
     buildSliders();
@@ -947,11 +1185,21 @@
       else if (action === 'continue') continueFromEvent();
     });
 
-    // Keep keyboard focus inside the modal while it is open.
+    // Keep keyboard focus inside whichever overlay is on top. Escape closes the Sources screen.
+    function topOverlay() {
+      var ids = ['sourcesOverlay', 'results', 'eventModal'];
+      for (var i = 0; i < ids.length; i++) {
+        var el = $(ids[i]);
+        if (el && !el.hidden) return el;
+      }
+      return null;
+    }
     document.addEventListener('keydown', function (e) {
-      var modal = $('eventModal');
-      if (e.key !== 'Tab' || modal.hidden || typeof modal.querySelectorAll !== 'function') return;
-      var items = modal.querySelectorAll('button:not([disabled]), a[href]');
+      var overlay = topOverlay();
+      if (!overlay) return;
+      if (e.key === 'Escape' && overlay.id === 'sourcesOverlay') { closeSources(); return; }
+      if (e.key !== 'Tab' || typeof overlay.querySelectorAll !== 'function') return;
+      var items = overlay.querySelectorAll('button:not([disabled]), a[href]');
       if (!items.length) return;
       var first = items[0];
       var last = items[items.length - 1];
@@ -969,16 +1217,31 @@
     // The "Open this week's event" button inside the This week tab.
     $('tabPanel').addEventListener('click', function (e) {
       var node = closestWith(e.target, '[data-action]');
-      if (node && node.getAttribute && node.getAttribute('data-action') === 'open' && state.eventPending) {
+      var action = node && node.getAttribute && node.getAttribute('data-action');
+      if (action === 'open' && state.eventPending) {
         $('eventModal').hidden = false;
         setAppInert(true);
         renderModal();
+      } else if (action === 'results' && state.done) {
+        showResults();
       }
     });
 
-    $('btnSources').addEventListener('click', function () {
-      state.activeTab = 'sources';
-      renderTabs();
+    // The left-rail Sources button opens the full Sources screen. It only opens when you ask.
+    $('btnSources').addEventListener('click', openSources);
+
+    $('results').addEventListener('click', function (e) {
+      var node = closestWith(e.target, '[data-action]');
+      var action = node && node.getAttribute && node.getAttribute('data-action');
+      if (action === 'rewind') restart(500);
+      else if (action === 'again') restart(0);
+      else if (action === 'copy') copyPlan();
+      else if (action === 'sources') openSources();
+    });
+
+    $('sourcesOverlay').addEventListener('click', function (e) {
+      var node = closestWith(e.target, '[data-action]');
+      if (node && node.getAttribute && node.getAttribute('data-action') === 'close-sources') closeSources();
     });
     $('btnMenu').addEventListener('click', function () {
       toast('Menu is coming soon.');

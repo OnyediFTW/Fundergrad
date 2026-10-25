@@ -17,6 +17,8 @@
  *   { type: 'coverWeek', amount: 135, from: 'cash'|'card'|'family' } how this week's spending is funded
  *
  * "requires" hides or disables a choice until a flag is true.
+ * "win" and "trap" on a choice feed the results screen: wins are listed as good decisions,
+ * and each trap lowers the "Traps avoided" part of the Cash GPA.
  *
  * Costs marked (E) are game estimates, not published statistics. Sourced
  * figures: textbooks (College Board range), card APR (~22%, Fed G.19),
@@ -35,7 +37,7 @@ const EVENTS = [
     choices: [
       { id: 'all-new', label: 'Buy everything new', detail: 'Bookstore price, nothing to worry about.',
         effects: [{ type: 'cash', amount: -620, label: 'Textbooks (all new)' }] },
-      { id: 'mix', label: 'Mix of used and rental', detail: 'A little more work, a lot cheaper.',
+      { id: 'mix', win: 'Compared prices on textbooks', label: 'Mix of used and rental', detail: 'A little more work, a lot cheaper.',
         effects: [{ type: 'cash', amount: -340, label: 'Textbooks (used + rental)' }] },
       { id: 'borrow', label: 'Borrow and use the library reserve', detail: 'Cheapest, but you will be racing other students for the copies.',
         effects: [{ type: 'cash', amount: -150, label: 'Textbooks (borrow + library)' }, { type: 'stress', amount: 1 }, { type: 'flag', key: 'borrowedBooks', value: true }] },
@@ -53,8 +55,8 @@ const EVENTS = [
     choices: [
       { id: 'sign-up', label: 'Sign up', detail: 'Limit $500, APR about 22%.',
         effects: [{ type: 'flag', key: 'hasCard', value: true }, { type: 'flag', key: 'cardApr', value: 22 }] },
-      { id: 'decline', label: 'Decline and take the pizza anyway', detail: 'No card, no risk.', effects: [] },
-      { id: 'sign-up-full', label: 'Sign up and pay it off in full every month', detail: 'Same card, different habit.',
+      { id: 'decline', win: 'Passed on a credit card you did not need', label: 'Decline and take the pizza anyway', detail: 'No card, no risk.', effects: [] },
+      { id: 'sign-up-full', win: 'Planned to pay the card off in full every month', label: 'Sign up and pay it off in full every month', detail: 'Same card, different habit.',
         effects: [{ type: 'flag', key: 'hasCard', value: true }, { type: 'flag', key: 'cardApr', value: 22 }, { type: 'flag', key: 'payInFull', value: true }] },
     ],
   },
@@ -74,7 +76,7 @@ const EVENTS = [
         effects: [{ type: 'card', amount: 85, label: 'Concert ticket (card)' }] },
       { id: 'skip', label: 'Skip it', detail: 'Keep your money, miss the night.',
         effects: [{ type: 'stress', amount: 1 }] },
-      { id: 'cheap-hangout', label: 'Suggest a $20 hangout instead', detail: 'Same friends, smaller bill.',
+      { id: 'cheap-hangout', win: 'Found a cheaper way to see your friends', label: 'Suggest a $20 hangout instead', detail: 'Same friends, smaller bill.',
         effects: [{ type: 'cash', amount: -20, label: 'Cheaper hangout' }] },
     ],
   },
@@ -88,11 +90,11 @@ const EVENTS = [
     takeaway: 'Subscriptions are built to be easy to start and easy to forget. Set a reminder the day you sign up.',
     sources: ['FTC_TRIALS'],
     choices: [
-      { id: 'cancel-all', label: 'Cancel all three', detail: 'Back to $0 a week.',
+      { id: 'cancel-all', win: 'Cancelled subscriptions you were not using', label: 'Cancel all three', detail: 'Back to $0 a week.',
         effects: [{ type: 'recurring', id: 'subs', perWeek: 0, label: 'Subscriptions' }] },
-      { id: 'keep-one', label: 'Keep the one you actually use', detail: 'About $3 a week.',
+      { id: 'keep-one', win: 'Kept only the subscription you actually use', label: 'Keep the one you actually use', detail: 'About $3 a week.',
         effects: [{ type: 'recurring', id: 'subs', perWeek: 3, label: 'Subscriptions (kept one)' }] },
-      { id: 'ignore', label: 'Ignore it for now', detail: 'About $8 a week, until you cancel.',
+      { id: 'ignore', trap: 'Left unused subscriptions running', label: 'Ignore it for now', detail: 'About $8 a week, until you cancel.',
         effects: [{ type: 'recurring', id: 'subs', perWeek: 8, label: 'Subscriptions (ignored)' }] },
     ],
   },
@@ -202,9 +204,9 @@ const EVENTS = [
     takeaway: 'If someone you do not know sends a check and asks for money back, it is a scam. A check can look cleared and still bounce weeks later. Young adults are hit especially hard.',
     sources: ['FTC_FAKECHECK', 'FTC_SPOTLIGHT'],
     choices: [
-      { id: 'report', label: 'Ignore it and report it', detail: 'Delete, report, move on.',
+      { id: 'report', win: 'Spotted and reported a fake-check job offer', label: 'Ignore it and report it', detail: 'Delete, report, move on.',
         effects: [] },
-      { id: 'deposit', label: 'Deposit the check and send $250 back', detail: 'The check bounces. The bank takes back its money and you are out the $250.',
+      { id: 'deposit', trap: 'Fell for a fake-check scam', label: 'Deposit the check and send $250 back', detail: 'The check bounces. The bank takes back its money and you are out the $250.',
         effects: [{ type: 'cash', amount: -250, label: 'Sent to scammer (fake check)' }, { type: 'stress', amount: 2 }] },
     ],
   },
@@ -218,12 +220,12 @@ const EVENTS = [
     takeaway: 'Pay-in-four feels small because it is split up. Stack a few of them and they quietly use up your next month.',
     sources: ['CFPB_BNPL', 'CFPB_BNPL_PR'],
     choices: [
-      { id: 'bnpl', label: 'Buy now with pay-in-4', detail: '$60 now, then $60 a week for three weeks.',
+      { id: 'bnpl', trap: 'Put a $240 jacket on pay-in-4', label: 'Buy now with pay-in-4', detail: '$60 now, then $60 a week for three weeks.',
         effects: [{ type: 'cash', amount: -60, label: 'Jacket, payment 1 of 4' },
           { type: 'scheduled', week: 12, cash: -60, label: 'Jacket, payment 2 of 4' },
           { type: 'scheduled', week: 13, cash: -60, label: 'Jacket, payment 3 of 4' },
           { type: 'scheduled', week: 14, cash: -60, label: 'Jacket, payment 4 of 4' }] },
-      { id: 'wait', label: 'Wait 48 hours, then decide', detail: 'Most urges fade. If you still want it, it will be there.',
+      { id: 'wait', win: 'Waited 48 hours before an impulse buy', label: 'Wait 48 hours, then decide', detail: 'Most urges fade. If you still want it, it will be there.',
         effects: [{ type: 'flag', key: 'waitedOnJacket', value: true }] },
       { id: 'skip', label: 'Skip it', detail: 'Keep the $240.', effects: [] },
     ],
@@ -242,7 +244,7 @@ const EVENTS = [
     choices: [
       { id: 'fly-home', label: 'Bus or fly home', detail: '$140 round trip.',
         effects: [{ type: 'cash', amount: -140, label: 'Thanksgiving travel' }] },
-      { id: 'carpool', label: 'Carpool with a friend', detail: 'Gas split four ways: $45.',
+      { id: 'carpool', win: 'Split a ride home to cut travel costs', label: 'Carpool with a friend', detail: 'Gas split four ways: $45.',
         effects: [{ type: 'cash', amount: -45, label: 'Thanksgiving carpool' }] },
       { id: 'friendsgiving', label: 'Stay and host a Friendsgiving', detail: 'Potluck and groceries: $30.',
         effects: [{ type: 'cash', amount: -30, label: 'Friendsgiving' }] },
@@ -260,7 +262,7 @@ const EVENTS = [
     choices: [
       { id: 'new-coat', label: 'New coat', detail: 'Coat $90, gifts $60, club dues $40.',
         effects: [{ type: 'cash', amount: -190, label: 'Coat, gifts, and dues' }] },
-      { id: 'thrift-coat', label: 'Thrifted coat', detail: 'Coat $35, gifts $60, club dues $40.',
+      { id: 'thrift-coat', win: 'Thrifted a coat instead of buying new', label: 'Thrifted coat', detail: 'Coat $35, gifts $60, club dues $40.',
         effects: [{ type: 'cash', amount: -135, label: 'Thrifted coat, gifts, and dues' }] },
     ],
   },
@@ -276,7 +278,7 @@ const EVENTS = [
     choices: [
       { id: 'cope', label: 'Cope with delivery and rides', detail: 'Delivery fees, late-night rides, and printing: about $70.',
         effects: [{ type: 'cash', amount: -70, label: 'Finals week coping spend' }, { type: 'stress', amount: -1 }] },
-      { id: 'plan', label: 'Cook, plan, and hold the line', detail: 'Groceries and printing: about $20.',
+      { id: 'plan', win: 'Held the line during finals week', label: 'Cook, plan, and hold the line', detail: 'Groceries and printing: about $20.',
         effects: [{ type: 'cash', amount: -20, label: 'Finals week groceries and printing' }] },
     ],
   },

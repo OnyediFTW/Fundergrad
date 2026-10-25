@@ -31,10 +31,24 @@ Make the mistakes here first. Fundergrad turns a semester into a game with real 
 
 ## The rules behind the numbers
 
-- **Overdraft:** if your cash is below $0 when the week ends, the bank charges **$35** (CFPB) and stress rises.
+- **Overdraft:** if your cash is below $0 when the week ends, your savings cover the gap first (overdraft protection). Only what savings cannot cover costs a **$35** fee (CFPB) and more stress.
 - **Credit card:** carry a balance and it grows at about **22% APR** (Federal Reserve), charged weekly. A "Pay down card" slider appears whenever you owe money.
 - **Stress:** skipping food, transport, or school supplies raises it; a calm week lowers it.
 - **Coach:** a rules-based helper that reads your numbers and gives up to four hints. It never calls an AI, so every hint is repeatable and traceable to a rule.
+
+## How the Cash GPA works
+
+Graded from 0.0 to 4.0 across five parts. These weights and targets are game design choices, not published standards.
+
+| Part | Weight | What earns full marks |
+|---|---|---|
+| Cushion | 30% | Finishing with about $1,000 in cash plus savings, minus any card balance |
+| Fees and interest | 25% | No overdraft fees and no card interest |
+| Saving habit | 20% | Setting aside about $400 over the semester |
+| Stress | 15% | Low average stress across the 14 weeks |
+| Traps avoided | 10% | No fake-check scam, no ignored subscriptions, no pay-in-4 impulse buy |
+
+The results screen ends with three personal **if-then moves**, chosen from your weakest parts. **Rewind** replays the same semester with a $500 buffer and shows the GPA difference.
 
 ## Run it
 
@@ -67,6 +81,6 @@ docs/             plan, source list, event table, dev notes
 - [x] Cash chart with a live preview as you move the sliders
 - [x] Event cards and choice effects
 - [x] Overdraft fee, card interest, and a rules-based coach
-- [ ] Cash GPA, results screen, Rewind
+- [x] Cash GPA, results screen, Rewind, and a Sources screen
 - [ ] Tutorial arrows and sources screen
 - [ ] Polish and demo link
