@@ -22,6 +22,13 @@ Make the mistakes here first. Fundergrad turns a semester into a game with real 
 - **Trusted-source validation:** each lesson links to an agency or Nobel Prize page. See `docs/sources.md`.
 - **Behavioral science:** loss aversion, mental accounting, and self-control shape the mechanics.
 
+## How to play
+
+1. Each week an **event card** opens (a late paycheck, a dead laptop, a fake-check job offer). Pick a choice.
+2. See **what happened**, **why it matters**, and the **source** behind the lesson.
+3. Split the week's money across food, getting around, school, social, and savings. The cash chart previews where you will end up before you commit.
+4. **Lock in the week.** Fourteen weeks later, your semester is graded.
+
 ## Run it
 
 No install, no server. Open `index.html` in a browser.
@@ -51,7 +58,7 @@ docs/             plan, source list, event table, dev notes
 - [x] Plan, event data, and source list
 - [x] Layout and weekly ledger skeleton
 - [x] Cash chart with a live preview as you move the sliders
-- [ ] Event cards and choice effects
+- [x] Event cards and choice effects
 - [ ] Hint engine, overdraft fee, card interest
 - [ ] Cash GPA, results screen, Rewind
 - [ ] Tutorial arrows and sources screen

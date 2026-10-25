@@ -232,9 +232,17 @@
       var py = Y(pv.cash);
       out.push('<line class="c-preview" x1="' + X(last.week).toFixed(1) + '" y1="' + Y(last.cash).toFixed(1) + '" x2="' + px.toFixed(1) + '" y2="' + py.toFixed(1) + '"></line>');
       out.push('<circle class="c-preview-dot' + (bad ? ' bad' : '') + '" cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="7"></circle>');
-      var anchor = px > w - 120 ? 'end' : 'middle';
-      var labelX = anchor === 'end' ? px - 12 : px;
-      var labelY = py < m.t + 36 ? py + 26 : py - 14;
+      var nearTop = py < m.t + 36;
+      var anchor, labelX, labelY;
+      if (nearTop) {
+        // keep the label off the line: put it beside the dot
+        if (px > w - 160) { anchor = 'end'; labelX = px - 14; } else { anchor = 'start'; labelX = px + 14; }
+        labelY = py + 5;
+      } else {
+        anchor = px > w - 120 ? 'end' : 'middle';
+        labelX = anchor === 'end' ? px - 12 : px;
+        labelY = py - 14;
+      }
       out.push('<text class="c-preview-label' + (bad ? ' bad' : '') + '" x="' + labelX.toFixed(1) + '" y="' + labelY.toFixed(1) + '" text-anchor="' + anchor + '">Ends at ' + money(pv.cash) + (bad ? ' (overdraft)' : '') + '</text>');
     }
 
@@ -699,12 +707,52 @@
     setAppInert(false);
   }
 
+  // ---------- Safety net for out-of-date files ----------
+  // The event card needs a small block of HTML. If index.html is an older copy without it,
+  // build it here so the game still works.
+  function ensureModal() {
+    if ($('eventModal') && $('modalBody')) return;
+    if (typeof console !== 'undefined') console.warn('Fundergrad: index.html is missing the event modal, so it was built by game.js. Copy the latest index.html into your project.');
+    var old = $('eventModal');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'eventModal';
+    modal.hidden = true;
+    var card = document.createElement('div');
+    card.className = 'modal-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'eventTitle');
+    var bodyEl = document.createElement('div');
+    bodyEl.id = 'modalBody';
+    card.appendChild(bodyEl);
+    modal.appendChild(card);
+    document.body.appendChild(modal);
+  }
+
+  // If styles.css is an older copy, the event card would show up unstyled below the game.
+  // Say so plainly instead of leaving a mystery.
+  function checkStyles() {
+    if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return;
+    var modal = $('eventModal');
+    if (!modal || window.getComputedStyle(modal).position === 'fixed') return;
+    var bar = document.createElement('div');
+    bar.setAttribute('role', 'alert');
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:50;padding:10px 16px;background:#7a2430;color:#fff;font:14px system-ui,sans-serif;text-align:center';
+    bar.textContent = 'Your css/styles.css is out of date, so the event card will look wrong. Copy the latest css/styles.css into your project and refresh.';
+    document.body.appendChild(bar);
+  }
+
   // ---------- Wire up ----------
   function closestWith(target, selector) {
     return target && typeof target.closest === 'function' ? target.closest(selector) : target;
   }
 
   function init() {
+    ensureModal();
+    checkStyles();
     buildSliders();
     renderProgress();
     renderControls();
