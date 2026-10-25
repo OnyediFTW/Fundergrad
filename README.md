@@ -24,6 +24,8 @@ Make the mistakes here first. Fundergrad turns a semester into a game with real 
 
 ## How to play
 
+A short guided tutorial runs when you press Start (arrows and text boxes point at each part of the screen). The **Tutorial** button on the left rail replays it any time.
+
 1. Each week an **event card** opens (a late paycheck, a dead laptop, a fake-check job offer). Pick a choice.
 2. See **what happened**, **why it matters**, and the **source** behind the lesson.
 3. Split the week's money across food, getting around, school, social, and savings. The cash chart previews where you will end up before you commit.
@@ -82,5 +84,5 @@ docs/             plan, source list, event table, dev notes
 - [x] Event cards and choice effects
 - [x] Overdraft fee, card interest, and a rules-based coach
 - [x] Cash GPA, results screen, Rewind, and a Sources screen
-- [ ] Tutorial arrows and sources screen
+- [x] Guided tutorial with spotlight, arrows, and text boxes
 - [ ] Polish and demo link

@@ -22,5 +22,5 @@ Stepping weeks with these tools skips that week's event, so use them for looking
 3. Event cards and choice effects (done)
 4. Overdraft fee, card interest, stress rules, coach hints (done)
 5. Cash GPA, results screen, Rewind, Sources screen (done)
-6. Tutorial arrows
+6. Tutorial: spotlight, arrow, text box (done)
 7. Polish, README, demo link

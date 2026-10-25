@@ -21,7 +21,8 @@
  *   - Rewind replays the same semester with a $500 buffer so you can see what a cushion changes.
  *   - A Sources screen (left rail, or the results screen) lists every link. Nothing opens by itself.
  *
- * Still to come: tutorial arrows.
+ * The tutorial (step 6): after Start, a guided tour spotlights each part of the screen with an
+ * arrow and a short text box. The Tutorial button in the left rail replays it any time.
  *
  * Testing tools (only when the URL ends in #dev): a small button bar in the corner,
  * plus keys  [ ]  to change week  and  = -  to test the green / red flash.
@@ -917,10 +918,8 @@
     $('start').classList.add('hide');
     setTimeout(function () {
       $('start').style.display = 'none';
-      // Tutorial arrows come in a later build step; they will open here, before the first event.
-      openEvent();
+      startTour(openEvent);   // the tutorial runs first, then the Week 1 event card opens
     }, 520);
-    setAppInert(false);
   }
 
   // ---------- Cash GPA ----------
@@ -1117,6 +1116,182 @@
     openEvent();
   }
 
+  // ---------- Tutorial: spotlight, arrow, and a short text box ----------
+  // Each step points at one part of the screen. Steps without a target are centered cards.
+  var TOUR_STEPS = [
+    { title: 'Welcome to Fundergrad',
+      text: 'This is a fourteen-week college semester where your money choices have real consequences. Make your mistakes here, with fake money, so the real ones cost less. You finish with a Cash GPA.' },
+    { target: function () { return $('weekTrack'); }, side: 'bottom', title: 'Your semester',
+      text: 'This bar tracks the fourteen weeks. The blue dots mark Fall Break and Thanksgiving, when costs spike.' },
+    { target: function () { return $('sliders'); }, side: 'right', title: 'Your weekly budget',
+      text: 'These toggles decide where your paycheck goes: food, getting around, school, social, and savings. Where the money goes is the whole game.' },
+    { target: function () { return $('available') && $('available').parentNode && $('available').parentNode.parentNode; }, side: 'right', title: 'What is left to spend',
+      text: 'Available is what remains of this week\u2019s budget. You cannot lock in a week if you have given out more than you have.' },
+    { target: function () { return $('cashWrap') && $('cashWrap').parentNode; }, side: 'bottom', title: 'Your accounts',
+      text: 'Cash, savings, your card balance, and stress. A green flash means money in. A red flash means money out.' },
+    { target: function () { return $('chartWrap'); }, side: 'left', title: 'Preview before you commit',
+      text: 'The blue line is your cash so far. The dashed gold line shows where this week would end if you locked in now. Below $0 is the overdraft zone, which costs a $35 fee.' },
+    { target: function () { return $('tabs'); }, side: 'top', title: 'Insight tabs',
+      text: 'Scorecard tracks your money health. Account lists every dollar. This week recaps the event. Hints and sources holds the coach\u2019s advice and the sources behind each lesson.' },
+    { target: function () { return $('coach'); }, side: 'right', title: 'Your coach',
+      text: 'The coach reads your numbers and gives hints. It follows fixed rules, so it is not a chatbot, and its advice is the same every time.' },
+    { target: function () { return $('btnLock'); }, side: 'right', title: 'Lock it in',
+      text: 'When your plan looks right, lock in the week. Your pay arrives, bills leave, and the next event opens.' },
+    { title: 'Ready?',
+      text: 'Every week starts with an event: a late paycheck, a dead laptop, a job offer that is too good to be true. Choose carefully, then budget the week. Good luck.' },
+  ];
+
+  var tour = { steps: [], index: 0, done: null };
+
+  function rectOf(el) {
+    return el.getBoundingClientRect ? el.getBoundingClientRect()
+      : { left: 40, top: 40, right: 240, bottom: 100, width: 200, height: 60 };
+  }
+  function isShown(el) {
+    if (!el || el.hidden) return false;
+    if (el.style && el.style.display === 'none') return false;
+    var r = rectOf(el);
+    return r.width > 0 && r.height > 0;
+  }
+
+  function ensureTour() {
+    if ($('tour') && $('tourCard')) return;
+    var root = document.createElement('div');
+    root.className = 'tour';
+    root.id = 'tour';
+    root.hidden = true;
+    root.innerHTML =
+      '<div class="tour-dim" id="tourDim"></div>' +
+      '<div class="tour-spot" id="tourSpot"></div>' +
+      '<div class="tour-card" id="tourCard" role="dialog" aria-modal="true" aria-labelledby="tourTitle">' +
+        '<span class="tour-arrow" id="tourArrow"></span>' +
+        '<p class="tour-step" id="tourStep"></p>' +
+        '<h2 class="tour-title" id="tourTitle"></h2>' +
+        '<p class="tour-text" id="tourText"></p>' +
+        '<div class="tour-actions">' +
+          '<button type="button" class="linkish" data-tour="skip">Skip tutorial</button>' +
+          '<span class="spacer"></span>' +
+          '<button type="button" class="secondary" id="tourBack" data-tour="back">Back</button>' +
+          '<button type="button" class="primary" id="tourNext" data-tour="next">Next</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(root);
+  }
+
+  function positionTour() {
+    if ($('tour').hidden || !tour.steps.length) return;
+    var step = tour.steps[tour.index];
+    var card = $('tourCard'), spot = $('tourSpot'), arrow = $('tourArrow'), dim = $('tourDim');
+    var vw = (typeof window !== 'undefined' && window.innerWidth) || 1200;
+    var vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
+    var cw = card.offsetWidth || 340;
+    var ch = card.offsetHeight || 230;
+    var el = step.target ? step.target() : null;
+
+    if (!el) {                                   // centered card, no arrow
+      dim.style.display = '';
+      spot.style.display = 'none';
+      arrow.style.display = 'none';
+      card.style.left = Math.max(12, (vw - cw) / 2) + 'px';
+      card.style.top = Math.max(12, (vh - ch) / 2 - 20) + 'px';
+      return;
+    }
+
+    var r = rectOf(el);
+    var pad = 6;
+    dim.style.display = 'none';
+    spot.style.display = '';
+    spot.style.left = (r.left - pad) + 'px';
+    spot.style.top = (r.top - pad) + 'px';
+    spot.style.width = (r.width + pad * 2) + 'px';
+    spot.style.height = (r.height + pad * 2) + 'px';
+
+    var gap = 20;
+    var cx = r.left + r.width / 2;
+    var cy = r.top + r.height / 2;
+    function placeFor(side) {
+      if (side === 'right')  return { x: r.right + gap, y: cy - ch / 2 };
+      if (side === 'left')   return { x: r.left - gap - cw, y: cy - ch / 2 };
+      if (side === 'bottom') return { x: cx - cw / 2, y: r.bottom + gap };
+      return { x: cx - cw / 2, y: r.top - gap - ch };                       // top
+    }
+    function fits(p) { return p.x >= 8 && p.y >= 8 && p.x + cw <= vw - 8 && p.y + ch <= vh - 8; }
+
+    var opposite = { right: 'left', left: 'right', top: 'bottom', bottom: 'top' };
+    var order = [step.side, opposite[step.side], 'bottom', 'top', 'right', 'left'];
+    var side = null, pos = null;
+    for (var i = 0; i < order.length; i++) {
+      var p = placeFor(order[i]);
+      if (fits(p)) { side = order[i]; pos = p; break; }
+    }
+
+    if (!side) {                                  // nothing fits: tuck the card inside the target, no arrow
+      card.style.left = clamp(r.right - cw - 16, 8, vw - cw - 8) + 'px';
+      card.style.top = clamp(r.top + 16, 8, vh - ch - 8) + 'px';
+      arrow.style.display = 'none';
+      return;
+    }
+
+    pos.x = clamp(pos.x, 8, vw - cw - 8);
+    pos.y = clamp(pos.y, 8, vh - ch - 8);
+    card.style.left = pos.x + 'px';
+    card.style.top = pos.y + 'px';
+
+    // The arrow sits on the card edge that faces the target and points at it.
+    arrow.style.display = '';
+    if (side === 'bottom' || side === 'top') {
+      arrow.className = 'tour-arrow ' + (side === 'bottom' ? 'a-up' : 'a-down');
+      arrow.style.left = clamp(cx - pos.x - 7, 16, cw - 30) + 'px';
+      arrow.style.top = (side === 'bottom' ? -8 : ch - 6) + 'px';
+    } else {
+      arrow.className = 'tour-arrow ' + (side === 'right' ? 'a-left' : 'a-right');
+      arrow.style.top = clamp(cy - pos.y - 7, 16, ch - 30) + 'px';
+      arrow.style.left = (side === 'right' ? -8 : cw - 6) + 'px';
+    }
+  }
+
+  function renderTourStep() {
+    var step = tour.steps[tour.index];
+    var total = tour.steps.length;
+    var last = tour.index === total - 1;
+    $('tourStep').textContent = 'Step ' + (tour.index + 1) + ' of ' + total;
+    $('tourTitle').textContent = step.title;
+    $('tourText').textContent = step.text;
+    $('tourBack').style.visibility = tour.index === 0 ? 'hidden' : 'visible';
+    $('tourNext').textContent = last ? (tour.done ? 'Start Week 1' : 'Got it') : 'Next';
+    var el = step.target ? step.target() : null;
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    positionTour();
+    if (typeof $('tourNext').focus === 'function') $('tourNext').focus();
+  }
+
+  function startTour(done) {
+    ensureTour();
+    // Skip any step whose target is not on screen right now (for example, no coach hint yet).
+    tour.steps = TOUR_STEPS.filter(function (st) { return !st.target || isShown(st.target()); });
+    tour.index = 0;
+    tour.done = done || null;
+    $('tour').hidden = false;
+    setAppInert(true);
+    renderTourStep();
+  }
+
+  function endTour() {
+    $('tour').hidden = true;
+    setAppInert(false);
+    var done = tour.done;
+    tour.done = null;
+    if (done) done();
+  }
+
+  function nextTour() {
+    if (tour.index >= tour.steps.length - 1) endTour();
+    else { tour.index += 1; renderTourStep(); }
+  }
+  function backTour() {
+    if (tour.index > 0) { tour.index -= 1; renderTourStep(); }
+  }
+
   // ---------- Safety net for out-of-date files ----------
   // The event card needs a small block of HTML. If index.html is an older copy without it,
   // build it here so the game still works.
@@ -1142,6 +1317,19 @@
     document.body.appendChild(modal);
   }
 
+  // The rail Tutorial button lives in index.html. Build it here if that file is an older copy.
+  function ensureTutorialButton() {
+    if ($('btnTutorial')) return;
+    var menu = $('btnMenu');
+    if (!menu || !menu.parentNode) return;
+    var btn = document.createElement('button');
+    btn.className = 'rail-btn';
+    btn.id = 'btnTutorial';
+    btn.type = 'button';
+    btn.innerHTML = '<span class="rail-icon" aria-hidden="true">?</span><span>Tutorial</span>';
+    menu.parentNode.appendChild(btn);
+  }
+
   // If styles.css is an older copy, the event card would show up unstyled below the game.
   // Say so plainly instead of leaving a mystery.
   function checkStyles() {
@@ -1165,6 +1353,8 @@
     ensureOverlay('results', 'resultsBody', 'Your results');
     ensureOverlay('sourcesOverlay', 'sourcesBody', 'Sources');
     ensureCoach();
+    ensureTour();
+    ensureTutorialButton();
     checkStyles();
     buildSliders();
     renderProgress();
@@ -1188,7 +1378,7 @@
 
     // Keep keyboard focus inside whichever overlay is on top. Escape closes the Sources screen.
     function topOverlay() {
-      var ids = ['sourcesOverlay', 'results', 'eventModal'];
+      var ids = ['tour', 'sourcesOverlay', 'results', 'eventModal'];
       for (var i = 0; i < ids.length; i++) {
         var el = $(ids[i]);
         if (el && !el.hidden) return el;
@@ -1198,6 +1388,11 @@
     document.addEventListener('keydown', function (e) {
       var overlay = topOverlay();
       if (!overlay) return;
+      if (overlay.id === 'tour') {
+        if (e.key === 'Escape') { endTour(); return; }
+        if (e.key === 'ArrowRight') { nextTour(); return; }
+        if (e.key === 'ArrowLeft') { backTour(); return; }
+      }
       if (e.key === 'Escape' && overlay.id === 'sourcesOverlay') { closeSources(); return; }
       if (e.key !== 'Tab' || typeof overlay.querySelectorAll !== 'function') return;
       var items = overlay.querySelectorAll('button:not([disabled]), a[href]');
@@ -1230,6 +1425,21 @@
 
     // The left-rail Sources button opens the full Sources screen. It only opens when you ask.
     $('btnSources').addEventListener('click', openSources);
+
+    $('tour').addEventListener('click', function (e) {
+      var node = closestWith(e.target, '[data-tour]');
+      var name = node && node.getAttribute && node.getAttribute('data-tour');
+      if (name === 'next') nextTour();
+      else if (name === 'back') backTour();
+      else if (name === 'skip') endTour();
+    });
+    $('btnTutorial').addEventListener('click', function () {
+      var busy = state.eventPending || state.busy || !$('tour').hidden || !$('results').hidden || !$('sourcesOverlay').hidden;
+      if (!busy) startTour(null);
+    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', positionTour);
+    }
 
     $('results').addEventListener('click', function (e) {
       var node = closestWith(e.target, '[data-action]');
